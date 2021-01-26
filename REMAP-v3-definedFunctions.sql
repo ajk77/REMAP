@@ -709,7 +709,7 @@ BEGIN
     SET in_string_parsed = in_string;    
 
 	 IF in_type = 'Oxygen therapy delivery device' THEN
-		 IF in_string_parsed LIKE '%high flow nasal cannula%' OR in_string_parsed LIKE '%hfnc%'OR in_string_parsed LIKE '%airvo%'>0 THEN		
+		 IF in_string_parsed LIKE '%high flow nasal cannula%' OR in_string_parsed LIKE '%hfnc%'OR in_string_parsed LIKE '%airvo%' OR in_string_parsed LIKE '%optiflo%'>0 THEN		
 			SET result_str = 'HFNC device';	
 		 ELSEIF in_string_parsed IN ('CPAP', 'Bipap') THEN 
 			SET result_str = 'NIV device';	

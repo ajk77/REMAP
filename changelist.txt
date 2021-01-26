@@ -1,0 +1,22 @@
+------------------------------changelist 2021/01/25------------------------------
+
+Improved Readme. 
+
+v3CalculatedStateHypoxiaAtEnroll will take PaO2 values (and corresponding FiO2/PEEP) from any time pre-enrollment (rather than within 24 hours before). 
+
+optiflo added to HFNC device list. 
+
+Okay, so relaxed HFNC is no more. Instead,  "O2 support" will be:
+sub_standard_meaning = 'Oxygen therapy delivery device' 
+result_str in ('HFNC device' , 'NC', 'Mask', 'Nonrebreather', 'Prebreather') 
+result_str for 'HFNC device' =  ['%high flow nasal cannula%'. '%hfnc%', '%airvo%', '%optiflo%']
+ result_str  for 'NC', 'Mask', 'Nonrebreather',  and 'Prebreather' = SELECT source_text FROM COVID_SUPPLEMENT.TEXT_STANDARDIZATION WHERE source_table = 'CE_PHYSIO' AND sub_standard_meaning IN ('NC', 'Mask', 'Nonrebreather', 'Prebreather')
+any documented O2 flow rate within +-12 hours of the device
+
+With the new v3SupplementalOxygenInstance query, I filter out rows associated with events that qualified as organ support HFNC. So yes, this table (and newly created COVID_PHI.v2SupplementalOxygenInstanceM/S)  correctly identify data corresponding to 'Hospitalised, low‐flow oxygen by mask or nasal prongs'. 
+
+COVID_PHI.v2RelaxedHFNCInstanceM/S is now depreciated and deleted. I updated the Daily CRF views to set 'HFNC' = '<DEPRECIATED>'. 'OS_HFNC' still performs the same as before. 
+
+I also removed RRT from v3OrganSupportInstance and created a standalone v3RRTInstance table. Edvin, querying RRT from the v2 tables is unchanged. 
+
+---------------------------------------------------------------------------------

@@ -17,8 +17,10 @@ NAVIGATION:
 	/ v2VasoInstanceS /
 	/ v2HFNCInstanceM /
 	/ v2HFNCInstanceS /
-	/ v2RelaxedHFNCInstanceM /
-	/ v2RelaxedHFNCInstanceS /
+	#/ v2RelaxedHFNCInstanceM /  ## removed and replaced with v2SupplementalOxygenInstanceM on 1/25/21 
+	#/ v2RelaxedHFNCInstanceS /  ## " " 
+	/ v2SupplementalOxygenInstanceM /
+	/ v2SupplementalOxygenInstanceS /
 	/ v2ECMOInstanceM /
 	/ v2ECMOInstanceS /
 	/ v2NivInstancesM /
@@ -283,47 +285,45 @@ NAVIGATION:
 			hfnc_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)
 	;
 	
-	### v2RelaxedHFNCInstanceM ###
-	DROP TABLE COVID_PHI.v2RelaxedHFNCInstancesM;
-	CREATE TABLE COVID_PHI.v2RelaxedHFNCInstancesM AS 
+	### v2SupplementalOxygenInstanceM ###
+	DROP TABLE COVID_PHI.v2SupplementalOxygenInstanceM;
+	CREATE TABLE COVID_PHI.v2SupplementalOxygenInstanceM AS 
 		SELECT DISTINCT
 			EIA.fin, EIA.stay_count, 
 			SD.StudyPatientId, SD.study_day,
 			SD.RandomizationTime_utc, 
-			hfnc_dt_utc, CURRENT_TIMESTAMP as last_update, SD.RandomizationType
+			O2_dt_utc, CURRENT_TIMESTAMP as last_update, SD.RandomizationType
 		FROM
-			(SELECT 	P.encntr_id, SO.event_utc AS hfnc_dt_utc, SO.StudyPatientID
+			(SELECT 	P.encntr_id, SO.event_utc AS O2_dt_utc, SO.StudyPatientID
 			FROM REMAP.v3SupplementalOxygenInstance SO
 			JOIN CT_DATA.CE_PHYSIO P ON SO.event_id = P.EVENT_ID 
-			WHERE support_type = 'relaxedHF'
 			) AS device
 			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (device.encntr_id = EIA.encntr_id)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId 
-				AND hfnc_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
+				AND O2_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
-			hfnc_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)
+			O2_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)
 		;
 		
 	
-	### v2RelaxedHFNCInstanceS ###
-	DROP TABLE COVID_PHI.v2RelaxedHFNCInstancesS;
-	CREATE TABLE COVID_PHI.v2RelaxedHFNCInstancesS AS 
+	### v2SupplementalOxygenInstanceS ###
+	DROP TABLE COVID_PHI.v2SupplementalOxygenInstanceS;
+	CREATE TABLE COVID_PHI.v2SupplementalOxygenInstanceS AS 
 	SELECT DISTINCT
 			EIA.fin, EIA.stay_count, 
 			SD.StudyPatientId, SD.study_day,
 			SD.RandomizationTime_utc, 
-			hfnc_dt_utc, CURRENT_TIMESTAMP as last_update, SD.RandomizationType
+			O2_dt_utc, CURRENT_TIMESTAMP as last_update, SD.RandomizationType
 		FROM
-			(SELECT 	P.encntr_id, SO.event_utc AS hfnc_dt_utc, SO.StudyPatientID
+			(SELECT 	P.encntr_id, SO.event_utc AS O2_dt_utc, SO.StudyPatientID
 			FROM REMAP.v3SupplementalOxygenInstance SO
 			JOIN CT_DATA.CE_PHYSIO P ON SO.event_id = P.EVENT_ID 
-			WHERE support_type = 'relaxedHF'
 			) AS device
 			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (device.encntr_id = EIA.encntr_id)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId 
-				AND hfnc_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
+				AND O2_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
-			hfnc_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)
+			O2_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)
 		;
 	
 	
@@ -503,9 +503,9 @@ NAVIGATION:
 			SD.last_update, SD.RandomizationType
 		FROM 
 			(SELECT P.encntr_id, O.event_utc AS rrt_dt_utc, O.StudyPatientID
-		FROM REMAP.v3OrganSupportInstance O
-		JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
-		WHERE support_type = 'RRT') AS CEIO
+			FROM REMAP.v3RRTInstance O
+			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
+			) AS CEIO
 			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEIO.encntr_id = EIA.encntr_id)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId AND rrt_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
@@ -524,9 +524,9 @@ NAVIGATION:
 			SD.last_update, SD.RandomizationType
 		FROM 
 			(SELECT P.encntr_id, O.event_utc AS rrt_dt_utc, O.StudyPatientID
-		FROM REMAP.v3OrganSupportInstance O
-		JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
-		WHERE support_type = 'RRT') AS CEIO
+			FROM REMAP.v3RRTInstance O
+			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
+			) AS CEIO
 			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEIO.encntr_id = EIA.encntr_id)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId AND rrt_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
