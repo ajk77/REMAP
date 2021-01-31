@@ -4,7 +4,6 @@
 Dependencies
 >REMAP.v3ViewCernerEnrolledPerson2 from REMAP-v3-definedViews.sql
 >to_utc(), to_float(), get_prefix(), get_postfix(), get_physio_result_str() from REMAP.v3-definedFunctions.sql
-
 */
 
 ### pull studypateintids from view ###
@@ -611,7 +610,7 @@ DROP TABLE REMAP.v3RRTInstance;
 ### v3SupplementalOxygenInstance ###
 DROP TABLE REMAP.v3SupplementalOxygenInstance;
 	CREATE TABLE REMAP.v3SupplementalOxygenInstance
-		SELECT DISTINCT device.event_id, device.STUDYPATIENTID, device.event_utc, device.support_type
+		SELECT device.event_id, device.STUDYPATIENTID, device.event_utc, device.support_type
 		FROM 
 			(
 			SELECT event_id, STUDYPATIENTID, event_utc, result_str AS support_type FROM REMAP.v3PhysioStr 
@@ -624,6 +623,22 @@ DROP TABLE REMAP.v3SupplementalOxygenInstance;
 			) AS O2 ON (device.studypatientid = O2.studypatientid 
 				AND TIMESTAMPDIFF(HOUR, device.event_utc, O2.event_utc) BETWEEN -12 AND 12)
 		WHERE device.event_id NOT IN (SELECT event_id FROM REMAP.v3OrganSupportInstance where support_type = 'HFNC')
+		UNION
+		SELECT 
+			D.event_id, D.studypatientid, O.event_utc, 'relaxedHF' AS support_type
+		FROM 
+			(SELECT *
+			 FROM REMAP.v3PhysioStr
+			 WHERE sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'HFNC device'
+			) AS D 
+			JOIN (SELECT * 
+			  FROM REMAP.v3Physio 
+			  WHERE sub_standard_meaning = 'Oxygen Flow Rate' AND result_float >= 20
+			) AS O ON (D.studypatientid = O.studypatientid AND TIMESTAMPDIFF(HOUR, D.event_utc, O.event_utc) BETWEEN -12 AND 12)
+			JOIN (SELECT * 
+			  FROM REMAP.v3Physio 
+			  WHERE sub_standard_meaning = 'FiO2' AND result_float >= 21
+			) AS F ON (O.studypatientid = F.studypatientid AND O.event_utc = F.event_utc)
 ; 
 
 ### v3CalculatedHourlyFiO2 ###
@@ -633,12 +648,11 @@ DROP TABLE REMAP.v3CalculatedHourlyFiO2;
 		SELECT 
 			device.STUDYPATIENTID, device.event_utc, device.support_type, Oxygen_Flow_Rate, units
 		FROM	
-			(SELECT * FROM REMAP.v3OrganSupportInstance WHERE support_type = 'HFNC'
-			UNION
+			( # HFNC from organ support instance table removed from query b/c FiO2 will be documented in this case
 			SELECT event_id, STUDYPATIENTID, event_utc, result_str AS support_type, '' AS documented_source 
 			FROM REMAP.v3PhysioStr 
 				WHERE sub_standard_meaning = 'Oxygen therapy delivery device' 
-				AND result_str IN ('NC', 'Mask', 'Nonrebreather', 'Prebreather')	
+				AND result_str IN ('HFNC device', 'NC', 'Mask', 'Nonrebreather', 'Prebreather')	
 			) AS device
 			JOIN (		
 				SELECT STUDYPATIENTID, event_utc, result_float AS Oxygen_Flow_Rate, units
@@ -670,6 +684,12 @@ DROP TABLE REMAP.v3CalculatedHourlyFiO2;
 					WHEN support_type = 'Prebreather' THEN
 						CASE 
 							WHEN Oxygen_Flow_Rate BETWEEN 8 AND 15 THEN 70
+							ELSE NULL
+						END
+					WHEN support_type = 'HFNC device' THEN
+						CASE 
+							WHEN Oxygen_Flow_Rate BETWEEN 8 AND 15 THEN 70
+							WHEN Oxygen_Flow_Rate > 15 THEN 100
 							ELSE NULL
 						END
 					ELSE NULL
