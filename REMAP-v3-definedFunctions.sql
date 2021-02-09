@@ -744,8 +744,13 @@ BEGIN
 		 IF in_string_parsed = 'Endotracheal' THEN
 		  SET result_str = 'Endotracheal';
 		 END IF;
-	 END IF;
-    
+	 ELSEIF in_type = 'Temperature (site)' THEN
+		 IF in_string_parsed IN (SELECT source_text FROM COVID_SUPPLEMENT.TEXT_STANDARDIZATION WHERE sub_standard_meaning IN ('Core Temperature')) THEN
+		 	SET result_str = 'Core Temperature';
+		 ELSE
+		 	SET result_str = 'Aux Temperature';
+		 END IF;
+    END IF;
     RETURN result_str;
 
 END$$

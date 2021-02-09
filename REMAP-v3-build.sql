@@ -1,4 +1,37 @@
+/*
+REMAP-v3-build.sql
+created by King
 
+NAVIGATION: 
+	TABLE BUILD ORDER 
+	REMAP.v3Participant -> FROM REMAP.v3ViewCernerEnrolledPerson2
+	REMAP.v3IdMap -> FROM REMAP.v3ViewCernerEnrolledPerson2, CT_DATA.ENCOUNTER_ALL, CT_DATA.CODE_VALUE  
+	REMAP.v3LocOrder -> FROM CT_DATA.ENCNTR_LOC_HIST, REMAP.v3IdMap
+	REMAP.v3tempLastEvent -> FROM for determing undocumented discharge >> used for updating REMAP.v3LocOrder to close off open loc entries
+	REMAP.v3Lab -> FROM CT_DATA.CE_LAB, REMAP.v3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION, CT_DATA.CODE_VALUE
+	REMAP.tempv3Physio -> FROM CT_DATA.CE_PHYSIO
+	REMAP.v3Physio -> FROM REMAP.tempv3Physio, REMAP.v3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION, CT_DATA.CODE_VALUE
+	REMAP.v3PhysioStr -> FROM REMAP.tempv3Physio, REMAP.v3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION, CT_DATA.CODE_VALUE
+	REMAP.v3IO -> FROM CT_DATA.CE_INTAKE_OUTPUT_RESULT, REMAP.v3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION
+	REMAP.v3Med -> FROM CT_DATA.MAR_AD, REMAP.v3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION, CT_DATA.CODE_VALUE
+	REMAP.v3OrganSupportInstance -> FROM REMAP.v3Med, REMAP.v3PhysioStr, REMAP.v3Physio, REMAP.NIVexclusion
+	REMAP.v3RandomizedSevere -> FROM REMAP.v3Participant, REMAP.v3LocOrder, REMAP.v3OrganSupportInstance, COVID_SUPPLEMENT.UNIT_DESCRIPTION_ARCHIVE (updated from REMAP.HistoricRandomizationTimes)
+	REMAP.v3RandomizedModerate -> FROM REMAP.v3Participant, REMAP.v3RandomizedSevere (updated from REMAP.HistoricRandomizationTimes)
+	REMAP.v3StudyDay -> FROM REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere, COVID_SUPPLEMENT.STUDY_DAY, REMAP.v3LocOrder
+	REMAP.v3tempDefinedLocOrder -> FROM REMAP.v3LocOrder, REMAP.v3OrganSupportInstance, COVID_SUPPLEMENT.UNIT_DESCRIPTION_ARCHIVE, CT_DATA.CODE_VALUE
+	REMAP.v3UnitStay -> FROM REMAP.v3tempDefinedLocOrder
+	REMAP.v3IcuStay -> FROM REMAP.v3UnitStay
+	REMAP.v3RRTInstance -> FROM REMAP.v3IO, REMAP.v3Physio
+	REMAP.v3SupplementalOxygenInstance -> FROM REMAP.v3PhysioStr , REMAP.v3Physio
+	REMAP.v3CalculatedHourlyFiO2 -> FROM REMAP.tempPnearestF, REMAP.tempPnearestE
+	REMAP.tempPnearestF -> FROM REMAP.v3Lab, REMAP.v3CalculatedHourlyFiO2  
+	REMAP.tempPnearestE -> FROM REMAP.v3Lab, REMAP.v3Physio
+	REMAP.v3CalculatedPFratio -> FROM REMAP.tempPnearestF, REMAP.tempPnearestE
+	REMAP.v3CalculatedPEEPjoinFiO2 -> FROM REMAP.v3Physio, REMAP.v3CalculatedHourlyFiO2 
+	REMAP.v3CalculatedStateHypoxiaAtEnroll -> FROM REMAP.v3CalculatedPFratio, REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere, REMAP.v3OrganSupportInstance
+	REMAP.v3CalculatedSOFA -> FROM REMAP.v3Physio, REMAP.v3StudyDay, REMAP.v3Med, CT_DATA.MAR_AD MAR, CT_DATA.CODE_VALUE, REMAP.v3Physio
+	
+*/
 
 /*
 Dependencies
@@ -200,7 +233,7 @@ CREATE TABLE REMAP.tempv3Physio
 				RESULT_VAL, result_units_cd
 			FROM REMAP.tempv3Physio
 			WHERE EVENT_CD IN (SELECT SOURCE_CV FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE sub_standard_meaning 
-			IN ('Oxygen therapy delivery device', 'ECMO', 'Mode',  'Endotube placement', 'Tube status', 'Airway'))
+			IN ('Oxygen therapy delivery device', 'ECMO', 'Mode',  'Endotube placement', 'Tube status', 'Airway', 'Temperature (site)'))
 			) AS L 
 			JOIN REMAP.v3IdMap M ON L.ENCNTR_ID = M.ENCNTR_ID
 			JOIN COVID_SUPPLEMENT.CV_STANDARDIZATION S ON L.EVENT_CD = S.source_cv
@@ -273,7 +306,16 @@ DROP TABLE REMAP.v3OrganSupportInstance;
 			FROM REMAP.v3PhysioStr
 			WHERE sub_standard_meaning = 'ECMO'
 		UNION # NIV #
-			SELECT DISTINCT NIV1.event_id, NIV1.studypatientid, NIV1.event_utc, 'NIV' AS support_type, '<depreciated>' AS documented_source
+			SELECT event_id, NIV.studypatientid, event_utc, 'NIV' AS support_type, sub_standard_meaning AS documented_source
+			FROM 
+				(SELECT * 
+				 FROM REMAP.v3PhysioStr		
+				 WHERE (sub_standard_meaning = 'Mode' AND result_str = 'NIV mode')
+					OR (sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'NIV device')
+				 ) AS NIV 
+			LEFT JOIN REMAP.NIVexclusion E ON NIV.StudyPatientID = E.StudyPatientID
+			WHERE E.StudyPatientID IS NULL OR NOT event_utc BETWEEN NIV_exclusion_start_utc AND NIV_exclusion_end_utc
+			/*SELECT DISTINCT NIV1.event_id, NIV1.studypatientid, NIV1.event_utc, 'NIV' AS support_type, '<depreciated>' AS documented_source
 			FROM 
 				(SELECT *, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60*12)) AS unix_half_days 
 				 FROM REMAP.v3PhysioStr		
@@ -288,6 +330,7 @@ DROP TABLE REMAP.v3OrganSupportInstance;
 				 ) AS NIV2 ON (NIV1.studypatientid = NIV2.studypatientid)
 			WHERE 
 				ABS(NIV1.unix_half_days - NIV2.unix_half_days) = 1
+	*/
 		UNION # IMV #
 			SELECT DISTINCT event_id, studypatientid, event_utc, 'IMV' AS support_type, documented_source
 			FROM
@@ -723,10 +766,12 @@ DROP TABLE REMAP.v3CalculatedPFratio;
 	CREATE TABLE REMAP.tempPnearestF
 		WITH PjoinF AS (
 			SELECT P.STUDYPATIENTID, P.result_float as PaO2_float, P.event_utc AS PaO2_utc, 
-				F.result_float AS FiO2_float, F.event_utc AS FiO2_utc, TIMESTAMPDIFF(MINUTE, F.event_utc, P.event_utc) AS delta_minutes
+				F.result_float AS FiO2_float,
+				ifnull(F.event_utc, ADDDATE(P.event_utc, INTERVAL -1439 MINUTE)) AS FiO2_utc,  # handles cases where PaO2 is reported without an FIO2
+				TIMESTAMPDIFF(MINUTE, ifnull(F.event_utc, ADDDATE(P.event_utc, INTERVAL -1439 MINUTE)), P.event_utc) AS delta_minutes
 			FROM
 				(SELECT * FROM REMAP.v3Lab WHERE sub_standard_meaning IN ('PaO2')) AS P
-				JOIN (SELECT * FROM REMAP.v3CalculatedHourlyFiO2) AS F 
+				LEFT JOIN (SELECT * FROM REMAP.v3CalculatedHourlyFiO2) AS F 
 				ON P.STUDYPATIENTID = F.STUDYPATIENTID AND F.event_utc BETWEEN ADDDATE(P.event_utc, INTERVAL -24 HOUR) AND P.event_utc
 		), minFs AS (
 			SELECT STUDYPATIENTID, PaO2_utc, MIN(delta_minutes) AS min_delta FROM PjoinF GROUP BY STUDYPATIENTID, PaO2_utc

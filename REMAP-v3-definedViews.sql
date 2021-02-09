@@ -1,51 +1,20 @@
-
-
-/* DEPREICIATED: see REMAP.v3ViewCernerEnrolledPerson */
 /*
-CREATE OR REPLACE VIEW REMAP.v3ViewCernerEnrolledPerson AS
-	SELECT
-	   EA.PERSON_ID,
-	   E.MRN,
-	   E.ENCNTR_ID,
-	   E.FIN,
-	   latest_screendates.screendate_utc,
-	   studyptids.STUDYPATIENTID,
-	   latest_screendates.REGIMEN
-	FROM
-	   CT_DATA.ENCOUNTER_ALL as EA
-	   LEFT JOIN CT_DATA.ENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
-	   LEFT JOIN CA_DB.ENROLLMENT_FORM as EF on EF.FIN = E.FIN
-	   LEFT JOIN (
-			# get latest screendate_utc for each Person 				
-			SELECT EA.PERSON_ID,	MAX(EF.SCREENDATE_UTC) AS screendate_utc, GROUP_CONCAT(EF.REGIMEN) AS REGIMEN
-			FROM
-			   CT_DATA.ENCOUNTER_ALL as EA
-			   left join CT_DATA.ENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
-			   left join CA_DB.ENROLLMENT_FORM as EF on EF.FIN = E.FIN
-			GROUP BY EA.PERSON_ID
-		   ) AS latest_screendates ON EA.PERSON_ID = latest_screendates.PERSON_ID	
-		LEFT JOIN (
-			# get studypatientid for each Person 				
-			SELECT EA.PERSON_ID, EF.STUDYPATIENTID
-			FROM
-			   CT_DATA.ENCOUNTER_ALL as EA
-			   left join CT_DATA.ENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
-			   left join CA_DB.ENROLLMENT_FORM as EF on EF.FIN = E.FIN
-			WHERE EF.STUDYPATIENTID IS NOT null
-		   ) AS studyptids ON EA.PERSON_ID = studyptids.PERSON_ID
-	WHERE
-		EA.PERSON_ID IN (
-			# get enrolled People 				
-			SELECT EA.PERSON_ID
-			FROM
-			   CT_DATA.ENCOUNTER_ALL as EA
-			   left join CT_DATA.ENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
-				left join CA_DB.ENROLLMENT_FORM as EF on EF.FIN = E.FIN
-			WHERE EF.ENROLLMENTRESULT = 'ENROLLED'
-		)
-			AND
-	   E.FIN IS NOT NULL
-;
+REMAP-v3-definedViews.sql
+created by King
+
+NAVIGATION: 
+	VIEWS
+	REMAP.v3ViewCernerEnrolledPerson2 -> FROM CT_DATA.ENCOUNTER_ALL, CT_DATA.ENCOUNTER_PHI, CA_DB.ENROLLMENT_FORM
+	REMAPe.ve3ViewEpicEnrolledPerson2 -> FROM COVID_PINNACLE.PAT_ENC, COVID_PINNACLE.PATIENT
+	REMAP.v3EnrolledHospitalization -> FROM REMAP.v3locOrder
+	REMAP.v3RandomizationMatchingWithV2 -> FROM COVID_PHI.v2EnrolledPerson, REMAP.v3RandomizedModerate,REMAP.v3RandomizedSevere 
+	COVID_PHI.v2ApacheeScoreS -> FROM COVID_PHI.v2ApacheeVarS, COVID_PHI.v2EnrolledPerson, COVID_PHI.GCS_scores, CA_DB.INTAKE_FORM
+	COVID_PHI.v2ApacheeDebug -> FROM apachee_baseline
+
+	ARCHIVED TABLE CREATIONS
+	/ REMAP.HistoricRandomizationTimes /
+	/ REMAP.NIVexclusion /
+	
 */
 
 
@@ -66,7 +35,8 @@ CREATE OR REPLACE VIEW REMAP.v3ViewCernerEnrolledPerson2 AS
 	   JOIN (
 			# get person_id for each enrolled person.  				
 			SELECT EF.STUDYPATIENTID, EF.screendate_utc, EF.REGIMEN, EA.PERSON_ID
-			FROM (select STUDYPATIENTID, screendate_utc, REGIMEN, FIN FROM CA_DB.ENROLLMENT_FORM WHERE ENROLLMENTRESULT = 'ENROLLED') as EF
+			FROM (SELECT STUDYPATIENTID, screendate_utc, REGIMEN, FIN 
+				FROM CA_DB.ENROLLMENT_FORM WHERE ENROLLMENTRESULT = 'ENROLLED' AND STUDYPATIENTID IS NOT NULL) as EF
 			JOIN CT_DATA.ENCOUNTER_PHI EP ON EF.FIN = EP.fin
 			JOIN CT_DATA.ENCOUNTER_ALL EA ON EP.encntr_id = EA.encntr_id
 		) AS all_screendates ON EA.PERSON_ID = all_screendates.PERSON_ID	
@@ -83,50 +53,94 @@ CREATE OR REPLACE VIEW REMAPe.ve3ViewEpicEnrolledPerson2 AS
 ;
 
 
-/* used for callculating enrollment states. */
-CREATE OR REPLACE VIEW REMAP.v3ViewCernerScreenedPerson2 AS
-	SELECT
-	   EA.PERSON_ID,
-	   E.MRN,
-	   E.ENCNTR_ID,
-	   E.FIN,
-	   all_screendates.screendate_utc,
-	   ifnull(all_screendates.STUDYPATIENTID, 9000000000 + E.MRN) AS STUDYPATIENTID,
-	   ifnull(all_screendates.REGIMEN, 'NOT ENROLLED') AS REGIMEN
-	FROM
-	   CT_DATA.ENCOUNTER_ALL as EA
-	   LEFT JOIN CT_DATA.ENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
-	   LEFT JOIN CA_DB.ENROLLMENT_FORM as EF on EF.FIN = E.FIN
-	   JOIN (
-			# get person_id for each enrolled person.  				
-			SELECT EF.STUDYPATIENTID, EF.screendate_utc, EF.REGIMEN, EA.PERSON_ID
-			FROM (select STUDYPATIENTID, screendate_utc, REGIMEN, FIN FROM CA_DB.ENROLLMENT_FORM) as EF
-			JOIN CT_DATA.ENCOUNTER_PHI EP ON EF.FIN = EP.fin
-			JOIN CT_DATA.ENCOUNTER_ALL EA ON EP.encntr_id = EA.encntr_id
-		) AS all_screendates ON EA.PERSON_ID = all_screendates.PERSON_ID	
-	WHERE E.FIN IS NOT NULL 
-;
-
-
-
-
 # Hospital admit and discharge times
-#CREATE OR REPLACE VIEW REMAP.v3EnrolledHospitalization AS
+CREATE OR REPLACE VIEW REMAP.v3EnrolledHospitalization AS
 	SELECT STUDYPATIENTID, MIN(beg_utc) AS beg_utc, MAX(end_utc) AS end_utc
 	FROM REMAP.v3locOrder
 	GROUP BY STUDYPATIENTID
 ;
 
 # Randomization time matching 
-#CREATE OR REPLACE VIEW REMAP.v3RandomizationMatchingWithV2 AS
-SELECT P.studypatientid, 
-	P.RandomizedModerate_utc, M.randomized_utc, if(P.RandomizedModerate_utc = M.randomized_utc OR (P.RandomizedModerate_utc IS NULL AND M.randomized_utc IS NULL), TRUE, FALSE) AS mod_match,
-	P.RandomizedSevere_utc, S.randomized_utc, if(P.RandomizedSevere_utc = S.randomized_utc  OR (P.RandomizedSevere_utc IS NULL AND S.randomized_utc IS NULL), TRUE, FALSE) AS sev_match
-FROM COVID_PHI.v2EnrolledPerson P 
-LEFT JOIN REMAP.v3RandomizedModerate M ON P.studypatientid = M.studypatientid
-LEFT JOIN REMAP.v3RandomizedSevere S ON P.studypatientid = S.studypatientid
+CREATE OR REPLACE VIEW REMAP.v3RandomizationMatchingWithV2 AS
+	SELECT P.studypatientid, 
+		P.RandomizedModerate_utc, M.randomized_utc, if(P.RandomizedModerate_utc = M.randomized_utc OR (P.RandomizedModerate_utc IS NULL AND M.randomized_utc IS NULL), TRUE, FALSE) AS mod_match,
+		P.RandomizedSevere_utc, S.randomized_utc, if(P.RandomizedSevere_utc = S.randomized_utc  OR (P.RandomizedSevere_utc IS NULL AND S.randomized_utc IS NULL), TRUE, FALSE) AS sev_match
+	FROM COVID_PHI.v2EnrolledPerson P 
+	LEFT JOIN REMAP.v3RandomizedModerate M ON P.studypatientid = M.studypatientid
+	LEFT JOIN REMAP.v3RandomizedSevere S ON P.studypatientid = S.studypatientid
 ;
 
+### Calculate ApacheeScoreS (for Severe Baseline) ###
+CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeScoreS AS 
+	WITH apachee_baseline AS (
+		SELECT *, ROW_number() over (PARTITION BY studypatientid, apachee_var, preferred_rank ORDER BY points DESC) AS rn
+		FROM COVID_PHI.v2ApacheeVarS
+	),
+	gcs AS (
+		SELECT 
+			EP.StudyPatientId, EP.RandomizedSevere_utc AS RandomizationTime_utc, 
+			'GCS' as sub_standard_meaning, 
+			G.score, G.input_source,
+			neurostatus, 
+			CASE
+		    	WHEN neurostatus LIKE '%15%' THEN 0
+		    	WHEN neurostatus LIKE '%13%' THEN 1
+	    		WHEN neurostatus LIKE '%10%' THEN 4 
+		    ELSE 100
+		    END AS points, 
+	 		0 AS preferred_rank
+		FROM
+			COVID_PHI.v2EnrolledPerson EP
+			LEFT JOIN COVID_PHI.GCS_scores G ON (EP.studypatientid = G.studypatientid)
+			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
+		WHERE
+			EP.RandomizedSevere_utc IS NOT NULL
+	)
+	SELECT 
+		studypatientid, SUM(points) AS apachee_APS 
+	FROM
+		(
+		SELECT 
+			studypatientid, SUM(points) AS points 
+		FROM
+			(SELECT * FROM
+				(SELECT * FROM apachee_baseline WHERE rn = 1) AS all_ranks
+				JOIN 
+					(SELECT studypatientid AS spi, apachee_var AS av, min(preferred_rank) AS min_rank 
+					FROM apachee_baseline 
+					WHERE rn = 1 
+					GROUP BY studypatientid, apachee_var
+				) AS min_ranks ON (all_ranks.studypatientid = min_ranks.spi AND all_ranks.apachee_var = min_ranks.av)
+			WHERE
+				preferred_rank = min_rank
+			) AS apachee_baseline_vars_used
+		GROUP BY 
+			studypatientid
+		UNION
+		SELECT 	
+			studypatientid, min(if(score IS NOT NULL, 15-score, points)) AS points
+		FROM
+			gcs
+		GROUP BY 
+			studypatientid
+		) AS inner_score
+	GROUP BY 
+		studypatientid
+; #SELECT * from COVID_PHI.v2ApacheeScoreS; 
+
+### Create apacheeDebug view ###
+CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeDebug AS
+	WITH apachee_baseline AS (
+		SELECT *, ROW_number() over (PARTITION BY studypatientid, apachee_var, preferred_rank ORDER BY points DESC) AS rn
+		FROM COVID_PHI.v2ApacheeVarS
+	)
+		SELECT all_ranks.* FROM
+			(SELECT * FROM apachee_baseline WHERE rn = 1) AS all_ranks
+			JOIN (SELECT studypatientid AS spi, apachee_var AS av, min(preferred_rank) AS min_rank FROM apachee_baseline WHERE rn = 1 GROUP BY studypatientid, apachee_var
+			) AS min_ranks ON (all_ranks.studypatientid = min_ranks.spi AND all_ranks.apachee_var = min_ranks.av)
+		WHERE
+			preferred_rank = min_rank
+; #SELECT * from COVID_PHI.v2ApacheeDebug; 
 
 /* This query was run on 12/5/20 to lock in historic randomization times (up through pt 211). 
 CREATE TABLE REMAP.HistoricRandomizationTimes	
@@ -134,5 +148,21 @@ CREATE TABLE REMAP.HistoricRandomizationTimes
 	FROM COVID_PHI.v2EnrolledPerson 
 	WHERE STUDYPATIENTID < 0400100212
 	ORDER BY STUDYPATIENTID;
+*/
+ 
+/* This query was run on 02/04/21 to create a NIV exclusion table since the linked documention requirement was dropped. 
+DROP TABLE REMAP.NIVexclusion;
+	CREATE TABLE REMAP.NIVexclusion (
+	 		upk INT AUTO_INCREMENT PRIMARY KEY,
+		   StudyPatientID VARCHAR(100) NOT NULL,
+	   	NIV_exclusion_start_utc DATETIME,
+	      NIV_exclusion_end_utc DATETIME,
+			insert_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			row_comment VARCHAR(256) DEFAULT ''
+			); 
+	
+	# below is an example insert statement 
+	INSERT INTO REMAP.NIVexclusion (StudyPatientID, NIV_exclusion_start_utc, NIV_exclusion_end_utc) 
+	VALUES ('0400100001', '2020-04-01 12:00:00', '2020-04-02 16:00:00');
 */
  

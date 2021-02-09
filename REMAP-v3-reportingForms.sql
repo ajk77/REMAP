@@ -492,6 +492,124 @@ SELECT * FROM REMAP.v3_Form2Baseline_sections5to7;
 
 ### v3_Form6Discharge_all ###
 
+/*
+CREATE OR REPLACE VIEW COVID_PHI.Outcome_day14 AS 
+	with day_14 AS (
+		SELECT SD.*, 'First' as randomization_count
+		FROM REMAP.v3StudyDay SD
+		JOIN (
+			SELECT StudyPatientID
+			FROM REMAP.v3RandomizedSevere
+			WHERE StudyPatientID NOT IN (SELECT StudyPatientID FROM REMAP.v3RandomizedModerate)
+		) R ON SD.StudyPatientID = R.StudyPatientID
+		WHERE SD.STUDY_DAY = 14 AND SD.RandomizationType = 'Severe' 	
+		UNION 
+		SELECT SD.*, 'First' as randomization_count
+		FROM REMAP.v3StudyDay SD
+		JOIN REMAP.v3RandomizedModerate R ON SD.StudyPatientID = R.StudyPatientID
+		WHERE SD.STUDY_DAY = 14 AND SD.RandomizationType = 'Moderate' 
+		UNION
+		SELECT SD.*, 'Last' as randomization_count
+		FROM REMAP.v3StudyDay SD
+		JOIN (
+			SELECT StudyPatientID
+			FROM REMAP.v3RandomizedSevere
+			WHERE StudyPatientID IN (SELECT StudyPatientID FROM REMAP.v3RandomizedModerate)
+		) R ON SD.StudyPatientID = R.StudyPatientID
+		WHERE SD.STUDY_DAY = 14 AND SD.RandomizationType = 'Severe' 
+	), with_ranges AS (
+		SELECT StudyPatientID, 
+			day_start_utc as day_14_start_utc,
+			day_end_utc as day_14_end_utc,
+			randomization_count,
+			RandomizationType, 
+			day_date_local,
+			STUDY_DAY
+		FROM day_14
+	), has_ECMO AS (
+		SELECT F.StudyPatientID, F.randomization_count, 1 AS has_ECMO 
+		FROM REMAP.v3OrganSupportInstance O
+		JOIN with_ranges F 
+		ON O.StudyPatientID = F.StudyPatientID AND O.event_utc BETWEEN F.day_14_start_utc and F.day_14_end_utc
+		WHERE O.support_type = 'ECMO'
+		GROUP BY O.StudyPatientID, randomization_count
+	), has_IMV AS (
+		SELECT F.StudyPatientID, F.randomization_count, 1 AS has_IMV 
+		FROM REMAP.v3OrganSupportInstance O
+		JOIN with_ranges F 
+		ON O.StudyPatientID = F.StudyPatientID AND O.event_utc BETWEEN F.day_14_start_utc and F.day_14_end_utc
+		WHERE O.support_type = 'IMV'
+		GROUP BY O.StudyPatientID, randomization_count
+	), has_NIV AS (
+		SELECT F.StudyPatientID, F.randomization_count, 1 AS has_NIV 
+		FROM REMAP.v3OrganSupportInstance O
+		JOIN with_ranges F 
+		ON O.StudyPatientID = F.StudyPatientID AND O.event_utc BETWEEN F.day_14_start_utc and F.day_14_end_utc
+		WHERE O.support_type = 'NIV'
+		GROUP BY O.StudyPatientID, randomization_count
+	), has_Vaso AS (
+		SELECT F.StudyPatientID, F.randomization_count, 1 AS has_Vaso 
+		FROM REMAP.v3OrganSupportInstance O
+		JOIN with_ranges F 
+		ON O.StudyPatientID = F.StudyPatientID AND O.event_utc BETWEEN F.day_14_start_utc and F.day_14_end_utc
+		WHERE O.support_type = 'Vasopressor'
+		GROUP BY O.StudyPatientID, randomization_count
+	), has_RRT AS (
+		SELECT F.StudyPatientID, F.randomization_count, 1 AS has_RRT 
+		FROM REMAP.v3RRTInstance O
+		JOIN with_ranges F 
+		ON O.StudyPatientID = F.StudyPatientID AND O.event_utc BETWEEN F.day_14_start_utc and F.day_14_end_utc
+		GROUP BY O.StudyPatientID, randomization_count
+	), has_relaxedHF AS (
+		SELECT F.StudyPatientID, F.randomization_count, 1 AS has_relaxedHF 
+		FROM REMAP.v3SupplementalOxygenInstance O
+		JOIN with_ranges F 
+		ON O.StudyPatientID = F.StudyPatientID AND O.event_utc BETWEEN F.day_14_start_utc and F.day_14_end_utc
+		WHERE O.support_type = 'relaxedHF'
+		GROUP BY O.StudyPatientID, randomization_count
+	), has_suppO2 AS (
+		SELECT F.StudyPatientID, F.randomization_count, 1 AS has_suppO2 
+		FROM REMAP.v3SupplementalOxygenInstance O
+		JOIN with_ranges F 
+		ON O.StudyPatientID = F.StudyPatientID AND O.event_utc BETWEEN F.day_14_start_utc and F.day_14_end_utc
+		WHERE O.support_type <> 'relaxedHF'
+		GROUP BY O.StudyPatientID, randomization_count
+	), pre_result AS ( 
+		SELECT 
+			W.*, 
+			has_suppO2 AS Hosp_low_flow_O2, 
+			if(has_NIV = 1 OR has_relaxedHF = 1, 1, NULL) AS has_NIVorRelaxedHF,
+			has_IMV,
+			if(has_IMV = 1 AND (has_Vaso = 1 OR has_RRT = 1), 1, NULL) AS has_IMVplus,
+			has_ECMO
+		FROM with_ranges W
+		LEFT JOIN has_ECMO E ON W.StudyPatientID = E.StudyPatientID AND W.randomization_count = E.randomization_count
+		LEFT JOIN has_IMV I ON W.StudyPatientID = I.StudyPatientID AND W.randomization_count = I.randomization_count
+		LEFT JOIN has_NIV N ON W.StudyPatientID = N.StudyPatientID AND W.randomization_count = N.randomization_count
+		LEFT JOIN has_Vaso V ON W.StudyPatientID = V.StudyPatientID AND W.randomization_count = V.randomization_count
+		LEFT JOIN has_RRT R ON W.StudyPatientID = R.StudyPatientID AND W.randomization_count = R.randomization_count
+		LEFT JOIN has_relaxedHF H ON W.StudyPatientID = H.StudyPatientID AND W.randomization_count = H.randomization_count
+		LEFT JOIN has_suppO2 S ON W.StudyPatientID = S.StudyPatientID AND W.randomization_count = S.randomization_count
+	) 
+	SELECT 
+		StudyPatientID, randomization_count AS RandomizationSequence, 
+		if(Hosp_low_flow_O2 IS NULL AND has_NIVorRelaxedHF IS NULL AND has_IMV IS NULL AND has_IMVplus IS NULL 
+			AND has_ECMO IS NULL, 1, 0) AS Hosp_no_supp_oxygen,
+		ifnull(Hosp_low_flow_O2, 0) AS Hosp_low_flow,
+		ifnull(has_NIVorRelaxedHF, 0) AS Non_invasive_vent,
+		ifnull(has_IMV, 0) AS Invasive_mech_vent,
+		ifnull(has_IMVplus, 0) AS Inv_mech_vent_plus,
+		ifnull(has_ECMO, 0) AS ECMO_,
+		'<e>' AS Deceased_,
+		'<e>' AS Unknown_,
+		RandomizationType,
+		STUDY_DAY,
+		day_date_local,
+		'<DEPRICIATED>' AS support_list,
+		day_14_start_utc AS day_start_utc,
+		day_14_end_utc AS day_end_utc
+	FROM pre_result
+	ORDER BY StudyPatientID, randomization_count, RandomizationType
+;
 	
-
-
+*/
