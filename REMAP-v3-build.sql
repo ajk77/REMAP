@@ -80,7 +80,7 @@ CREATE TABLE REMAP.v3LocOrder
 		SELECT encntr_id, REMAP.to_utc(MAX(max_event_dt)) AS max_event_utc 
 			FROM
 				(
-					SELECT 'lab', encntr_id, MAX(event_end_dt_tm) AS max_event_dt FROM CT_DATA.CE_LAB 
+					SELECT 'lab', encntr_id, MAX(event_end_dt_tm) AS max_event_dt  FROM CT_DATA.CE_LAB 
 					WHERE encntr_id IN (SELECT encntr_id FROM REMAP.v3IdMap) GROUP by encntr_id
 				UNION
 					SELECT 'physio', encntr_id, MAX(event_end_dt_tm) AS max_event_dt FROM CT_DATA.CE_PHYSIO 

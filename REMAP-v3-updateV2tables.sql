@@ -26,8 +26,8 @@ NAVIGATION:
 	v2NivInstancesS -> FROM REMAP.v3OrganSupportInstance, CT_DATA.CE_PHYSIO, COVID_PHI.v2EnrolledIcuAdmitsS, COVID_PHI.v2StudyDayS
 	v2IVInstancesM -> FROM REMAP.v3OrganSupportInstance, CT_DATA.CE_PHYSIO, COVID_PHI.v2EnrolledIcuAdmitsM, COVID_PHI.v2StudyDayM
 	v2IVInstancesS -> FROM REMAP.v3OrganSupportInstance, CT_DATA.CE_PHYSIO, COVID_PHI.v2EnrolledIcuAdmitsS, COVID_PHI.v2StudyDayS
-	v2RRTInstanceM -> FROM REMAP.v3RRTInstance, CT_DATA.CE_PHYSIO, COVID_PHI.v2EnrolledIcuAdmitsM, COVID_PHI.v2StudyDayM
-	v2RRTInstanceS -> FROM REMAP.v3RRTInstance, CT_DATA.CE_PHYSIO, COVID_PHI.v2EnrolledIcuAdmitsS, COVID_PHI.v2StudyDayS
+	v2RRTInstanceM -> FROM REMAP.v3RRTInstance, CT_DATA.CE_PHYSIO, CT_DATA.CE_INTAKE_OUTPUT_RESULT, COVID_PHI.v2EnrolledIcuAdmitsM, COVID_PHI.v2StudyDayM
+	v2RRTInstanceS -> FROM REMAP.v3RRTInstance, CT_DATA.CE_PHYSIO, CT_DATA.CE_INTAKE_OUTPUT_RESULT, COVID_PHI.v2EnrolledIcuAdmitsS, COVID_PHI.v2StudyDayS
 	v2SofaInstancesM -> FROM REMAP.v3CalculatedSOFA
 	v2SofaInstancesS -> FROM REMAP.v3CalculatedSOFA
 	v2HourlyFiO2MeasurementsM -> FROM REMAP.v3CalculatedHourlyFiO2, COVID_PHI.v2StudyDayM
@@ -505,6 +505,12 @@ NAVIGATION:
 			(SELECT P.encntr_id, O.event_utc AS rrt_dt_utc, O.StudyPatientID
 			FROM REMAP.v3RRTInstance O
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
+			WHERE documented_source = 'Physio' 
+			UNION  
+			SELECT I.encntr_id, O.event_utc AS rrt_dt_utc, O.StudyPatientID
+			FROM REMAP.v3RRTInstance O
+			JOIN CT_DATA.CE_INTAKE_OUTPUT_RESULT I ON O.event_id = I.EVENT_ID
+			WHERE documented_source = 'IO'  
 			) AS CEIO
 			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEIO.encntr_id = EIA.encntr_id)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId AND rrt_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
@@ -526,6 +532,12 @@ NAVIGATION:
 			(SELECT P.encntr_id, O.event_utc AS rrt_dt_utc, O.StudyPatientID
 			FROM REMAP.v3RRTInstance O
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
+			WHERE documented_source = 'Physio' 
+			UNION  
+			SELECT I.encntr_id, O.event_utc AS rrt_dt_utc, O.StudyPatientID
+			FROM REMAP.v3RRTInstance O
+			JOIN CT_DATA.CE_INTAKE_OUTPUT_RESULT I ON O.event_id = I.EVENT_ID
+			WHERE documented_source = 'IO' 
 			) AS CEIO
 			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEIO.encntr_id = EIA.encntr_id)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId AND rrt_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
