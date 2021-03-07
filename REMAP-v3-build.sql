@@ -747,7 +747,7 @@ DROP TABLE REMAP.v3CalculatedHourlyFiO2;
 		FROM 
 		 (SELECT STUDYPATIENTID, event_utc, result_float, 0 AS priority, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60)) AS unix_hour  
 		 FROM REMAP.v3Physio 
-		 WHERE sub_standard_meaning = 'FiO2'
+		 WHERE sub_standard_meaning = 'FiO2' AND result_float BETWEEN 21 AND 100
 		UNION
 		 SELECT STUDYPATIENTID, event_utc, result_float, 1 AS priority, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60)) AS unix_hour 
 		 FROM CalcFiO2
