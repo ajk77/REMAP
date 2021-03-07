@@ -315,22 +315,6 @@ DROP TABLE REMAP.v3OrganSupportInstance;
 				 ) AS NIV 
 			LEFT JOIN REMAP.NIVexclusion E ON NIV.StudyPatientID = E.StudyPatientID
 			WHERE E.StudyPatientID IS NULL OR NOT event_utc BETWEEN NIV_exclusion_start_utc AND NIV_exclusion_end_utc
-			/*SELECT DISTINCT NIV1.event_id, NIV1.studypatientid, NIV1.event_utc, 'NIV' AS support_type, '<depreciated>' AS documented_source
-			FROM 
-				(SELECT *, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60*12)) AS unix_half_days 
-				 FROM REMAP.v3PhysioStr		
-				 WHERE (sub_standard_meaning = 'Mode' AND result_str = 'NIV mode')
-					OR (sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'NIV device')
-				 ) AS NIV1 
-			JOIN 		
-				(SELECT *, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60*12)) AS unix_half_days 
-				 FROM REMAP.v3PhysioStr		
-				 WHERE (sub_standard_meaning = 'Mode' AND result_str = 'NIV mode')
-					OR (sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'NIV device') 	
-				 ) AS NIV2 ON (NIV1.studypatientid = NIV2.studypatientid)
-			WHERE 
-				ABS(NIV1.unix_half_days - NIV2.unix_half_days) = 1
-	*/
 		UNION # IMV #
 			SELECT DISTINCT event_id, studypatientid, event_utc, 'IMV' AS support_type, documented_source
 			FROM
@@ -354,18 +338,6 @@ DROP TABLE REMAP.v3OrganSupportInstance;
 				FROM REMAP.v3PhysioStr
 				WHERE sub_standard_meaning = 'Mode' AND result_str = 'IV mode'
 			) AS IMV
-	/*	# RRT moved to its own table (v3RRTInstance) on 1/25/21 b/c it is not qualifying organ support. 
-		UNION # RRT #
-			SELECT DISTINCT event_id, studypatientid, event_utc, 'RRT' AS support_type, documented_source
-			FROM
-			  (SELECT *, '' AS prefix, 'IO' AS documented_source
-				FROM REMAP.v3IO
-				WHERE sub_standard_meaning = 'RRT' AND RESULT_FLOAT > 0
-			  UNION
-				SELECT *, 'Physio' AS documented_source
-				FROM REMAP.v3Physio
-				WHERE sub_standard_meaning = 'RRT'
-			) AS RRT*/
 ;
 	
 ### find severe randomization times ###

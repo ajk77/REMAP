@@ -100,11 +100,11 @@ CREATE TABLE REMAPe.ve3LocOrder
 	WITH last_data AS (
 		SELECT STUDYPATIENTID, MAX(max_event_utc) AS max_event_utc
 		FROM
-			(SELECT STUDYPATIENTID, MAX(REMAP.to_utc(REMAP.to_datetime_epic(TAKEN_TIME))) AS max_event_utc
+			(SELECT STUDYPATIENTID, MAX(REMAP.to_utc(TAKEN_TIME)) AS max_event_utc
 			FROM REMAPe.ve3IdMap I JOIN COVID_PINNACLE.MAR_ADMIN_INFO M ON I.FIN = M.MAR_ENC_CSN
 			GROUP BY STUDYPATIENTID
 			UNION
-			SELECT STUDYPATIENTID, MAX(REMAP.to_utc(REMAP.to_datetime_epic(RESULT_TIME))) AS max_event_utc
+			SELECT STUDYPATIENTID, MAX(REMAP.to_utc(RESULT_TIME)) AS max_event_utc
 			FROM REMAPe.ve3IdMap I JOIN COVID_PINNACLE.ORDER_RESULTS O ON I.FIN = O.PAT_ENC_CSN_ID
 			GROUP BY STUDYPATIENTID
 			UNION
@@ -213,7 +213,7 @@ CREATE TABLE REMAPe.ve3Lab
 	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, L.units
 	FROM  
 		(SELECT DISTINCT order_proc_id AS event_id, PAT_ENC_CSN_ID AS FIN, COMPONENT_ID AS EVENT_CD,
-			REMAP.to_utc(REMAP.to_datetime_epic(RESULT_TIME)) AS event_utc,
+			REMAP.to_utc(RESULT_TIME) AS event_utc,
 			REMAP.get_prefix(ORD_VALUE) as prefix, REMAP.to_float(ORD_VALUE) AS result_float, REFERENCE_UNIT AS units
 		FROM COVID_PINNACLE.ORDER_RESULTS
 		WHERE PAT_ENC_CSN_ID IN (SELECT FIN FROM REMAPe.ve3IdMap)
@@ -271,7 +271,7 @@ CREATE TABLE REMAPe.tempv3Physio
 DROP TABLE REMAPe.tempv3Physio; 
 
 ### pull relevant IO ###
-/* ########################## this table is not yet built ################ 
+/* ########################## RRT is Physio. This table may not be needed ################ 
 DROP TABLE REMAPe.ve3IO;
 CREATE TABLE REMAPe.ve3IO
 	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.result_float, '' AS units
@@ -288,7 +288,7 @@ CREATE TABLE REMAPe.ve3IO
 	WHERE result_float IS NOT NULL
 ; */
 
-/* ########################## this table is not yet built ################ 
+/* ########################## Need vaso codes before implmenting this ################ 
 ### pull relevant meds ###
 DROP TABLE REMAPe.ve3Med;
 CREATE TABLE REMAPe.ve3Med
@@ -316,11 +316,11 @@ DROP TABLE REMAPe.ve3OrganSupportInstance;
 	CREATE TABLE REMAPe.ve3OrganSupportInstance
 /*	############# this section is not yet built ################ 
 	# VASO #
-			SELECT event_id, studypatientid, event_utc, 'Vasopressor' AS support_type
+			SELECT event_id, studypatientid, event_utc, 'Vasopressor' AS support_type, NULL AS documented_source
 			FROM REMAPe.v3eMed
 			WHERE sub_standard_meaning = 'Vasopressor'
 	   UNION  # HFNC #
-*/			SELECT D.event_id, D.studypatientid, O.event_utc, 'HFNC' AS support_type
+*/			SELECT D.event_id, D.studypatientid, O.event_utc, 'HFNC' AS support_type, NULL AS documented_source
 			FROM 
 				(SELECT *
 				 FROM REMAPe.ve3PhysioStr
@@ -336,63 +336,43 @@ DROP TABLE REMAPe.ve3OrganSupportInstance;
 				) AS F ON (O.studypatientid = F.studypatientid AND O.event_utc = F.event_utc)
 /*		############# this section is not yet built ################ 
 		UNION # ECMO #
-			SELECT event_id, studypatientid, event_utc, 'ECMO' AS support_type
+			SELECT event_id, studypatientid, event_utc, 'ECMO' AS support_type, NULL AS documented_source
 			FROM REMAP.ve3PhysioStr
 			WHERE sub_standard_meaning = 'ECMO'
 */		UNION # NIV #
-			SELECT DISTINCT NIV1.event_id, NIV1.studypatientid, NIV1.event_utc, 'NIV' AS support_type
+		SELECT event_id, NIV.studypatientid, event_utc, 'NIV' AS support_type, sub_standard_meaning AS documented_source
 			FROM 
-				(SELECT *, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60*12)) AS unix_half_days 
-				 FROM REMAPe.ve3PhysioStr		
+				(SELECT * 
+				 FROM REMAPe.ve3PhysioStr	
 				 WHERE (sub_standard_meaning = 'Mode' AND result_str = 'NIV mode')
 					OR (sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'NIV device')
-				 ) AS NIV1 
-			JOIN 		
-				(SELECT *, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60*12)) AS unix_half_days 
-				 FROM REMAPe.ve3PhysioStr		
-				 WHERE (sub_standard_meaning = 'Mode' AND result_str = 'NIV mode')
-					OR (sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'NIV device') 	
-				 ) AS NIV2 ON (NIV1.studypatientid = NIV2.studypatientid)
-			WHERE 
-				ABS(NIV1.unix_half_days - NIV2.unix_half_days) = 1
+				 ) AS NIV 
+			LEFT JOIN REMAP.NIVexclusion E ON NIV.StudyPatientID = E.StudyPatientID
+			WHERE E.StudyPatientID IS NULL OR NOT event_utc BETWEEN NIV_exclusion_start_utc AND NIV_exclusion_end_utc
 		UNION # IMV #
-			SELECT DISTINCT event_id, studypatientid, event_utc, 'IMV' AS support_type
+			SELECT DISTINCT event_id, studypatientid, event_utc, 'IMV' AS support_type, documented_source
 			FROM
-			  (SELECT *
+			  (SELECT *, 'Oxygen therapy delivery device' AS documented_source
 				FROM REMAPe.ve3PhysioStr
 				WHERE sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'IV device'
 			  UNION
-				SELECT *
+				SELECT *, 'Endotube placement' AS documented_source
 				FROM REMAPe.ve3PhysioStr
 				WHERE sub_standard_meaning = 'Endotube placement' AND result_str = 'IV tube present'
 			  UNION
-				SELECT *
+				SELECT *, 'Tube status' AS documented_source
 				FROM REMAPe.ve3PhysioStr
 				WHERE sub_standard_meaning = 'Tube status' AND result_str = 'IV status'
 			  UNION			
-				SELECT *
+				SELECT *, 'Airway' AS documented_source
 				FROM REMAPe.ve3PhysioStr
 				WHERE sub_standard_meaning = 'Airway' AND result_str = 'Endotracheal'
 			  UNION			
-				SELECT *
+				SELECT *, 'Mode' AS documented_source
 				FROM REMAPe.ve3PhysioStr
 				WHERE sub_standard_meaning = 'Mode' AND result_str = 'IV mode'
 			) AS IMV
-/*		############# this section is not yet built ################ 
-		UNION # RRT #
-			SELECT DISTINCT event_id, studypatientid, event_utc, 'RRT' AS support_type
-			FROM
-			  (SELECT *, '' AS prefix, '' AS postfix 
-				FROM REMAPe.ve3IO
-				WHERE sub_standard_meaning = 'RRT' AND RESULT_FLOAT > 0
-			  UNION
-				SELECT * 
-				FROM REMAPe.ve3Physio
-				WHERE sub_standard_meaning = 'RRT'
-			) AS RRT
-*/
 ;
-	
 	
 ### find severe randomization times ###
 DROP TABLE REMAPe.ve3RandomizedSevere;
@@ -671,61 +651,71 @@ SELECT * FROM REMAPe.ve3IcuStay;
 
 /* **************************** */
 
+### ve3RRTInstance ####
+DROP TABLE REMAPe.ve3RRTInstance;
+	CREATE TABLE REMAP.v3RRTInstance
+		SELECT DISTINCT event_id, studypatientid, event_utc, 'RRT' AS support_type, documented_source
+			FROM
+			  (SELECT *, 'Physio' AS documented_source
+				FROM REMAPe.ve3Physio
+				WHERE sub_standard_meaning = 'RRT'
+			) AS RRT
+;	
+
 DROP TABLE REMAPe.ve3SupplementalOxygenInstance;
 	CREATE TABLE REMAPe.ve3SupplementalOxygenInstance
-		SELECT D.event_id, D.studypatientid, O.event_utc, 'relaxedHF' AS support_type
-		FROM (
-			SELECT *
-			FROM REMAPe.ve3PhysioStr
-			WHERE sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'HFNC device'
-		) AS D 
-		JOIN (
-			SELECT * 
-		  FROM REMAPe.ve3Physio 
-		  WHERE sub_standard_meaning = 'Oxygen Flow Rate' AND result_float >= 20
-		) AS O ON (D.studypatientid = O.studypatientid AND TIMESTAMPDIFF(HOUR, D.event_utc, O.event_utc) BETWEEN -12 AND 12)
-		JOIN (
-			SELECT * 
-			FROM REMAPe.ve3Physio 
-		  	WHERE sub_standard_meaning = 'FiO2' AND result_float >= 21
-		) AS F ON (O.studypatientid = F.studypatientid AND O.event_utc = F.event_utc)
-		UNION
 		SELECT device.event_id, device.STUDYPATIENTID, device.event_utc, device.support_type
-		FROM (
-			SELECT event_id, STUDYPATIENTID, event_utc, result_str AS support_type 
-			FROM REMAPe.ve3PhysioStr 
-			WHERE sub_standard_meaning = 'Oxygen therapy delivery device' 
-				AND result_str IN ('NC', 'Mask', 'Nonrebreather', 'Prebreather')	
-		) AS device
-		JOIN (		
-			SELECT STUDYPATIENTID, event_utc, result_float AS Oxygen_Flow_Rate, units
-			FROM REMAPe.ve3Physio WHERE sub_standard_meaning = 'Oxygen Flow Rate'
-		) AS O2 ON (device.studypatientid = O2.studypatientid AND device.event_utc = O2.event_utc)
+		FROM 
+			(
+			SELECT event_id, STUDYPATIENTID, event_utc, result_str AS support_type FROM REMAPe.ve3PhysioStr 
+				WHERE sub_standard_meaning = 'Oxygen therapy delivery device' 
+				AND result_str IN ('HFNC device', 'NC', 'Mask', 'Nonrebreather', 'Prebreather')	
+			) AS device
+			JOIN (		
+				SELECT STUDYPATIENTID, event_utc, result_float AS Oxygen_Flow_Rate, units
+				FROM REMAPe.ve3Physio WHERE sub_standard_meaning = 'Oxygen Flow Rate'
+			) AS O2 ON (device.studypatientid = O2.studypatientid 
+				AND TIMESTAMPDIFF(HOUR, device.event_utc, O2.event_utc) BETWEEN -12 AND 12)
+		WHERE device.event_id NOT IN (SELECT event_id FROM REMAPe.ve3OrganSupportInstance where support_type = 'HFNC')
+		UNION
+		SELECT 
+			D.event_id, D.studypatientid, O.event_utc, 'relaxedHF' AS support_type
+		FROM 
+			(SELECT *
+			 FROM REMAPe.ve3PhysioStr
+			 WHERE sub_standard_meaning = 'Oxygen therapy delivery device' AND result_str = 'HFNC device'
+			) AS D 
+			JOIN (SELECT * 
+			  FROM REMAPe.ve3Physio 
+			  WHERE sub_standard_meaning = 'Oxygen Flow Rate' AND result_float >= 20
+			) AS O ON (D.studypatientid = O.studypatientid AND TIMESTAMPDIFF(HOUR, D.event_utc, O.event_utc) BETWEEN -12 AND 12)
+			JOIN (SELECT * 
+			  FROM REMAPe.ve3Physio 
+			  WHERE sub_standard_meaning = 'FiO2' AND result_float >= 21
+			) AS F ON (O.studypatientid = F.studypatientid AND O.event_utc = F.event_utc)
 ; 
 
+### ve3CalculatedHourlyFiO2 ###
 DROP TABLE REMAPe.ve3CalculatedHourlyFiO2;
 	CREATE TABLE REMAPe.ve3CalculatedHourlyFiO2 
 	WITH TempOxygenationDevices AS (
-		SELECT device.STUDYPATIENTID, device.event_utc, device.support_type, Oxygen_Flow_Rate, units
-		FROM (
-			SELECT * 
-			FROM REMAPe.ve3OrganSupportInstance 
-			WHERE support_type = 'HFNC'
-			UNION
-			SELECT event_id, STUDYPATIENTID, event_utc, result_str AS support_type 
+		SELECT 
+			device.STUDYPATIENTID, device.event_utc, device.support_type, Oxygen_Flow_Rate, units
+		FROM	
+			( # HFNC from organ support instance table removed from query b/c FiO2 will be documented in this case
+			SELECT event_id, STUDYPATIENTID, event_utc, result_str AS support_type, '' AS documented_source 
 			FROM REMAPe.ve3PhysioStr 
-			WHERE sub_standard_meaning = 'Oxygen therapy delivery device' 
-				AND result_str IN ('NC', 'Mask', 'Nonrebreather', 'Prebreather')	
-		) AS device
-		JOIN (		
-			SELECT STUDYPATIENTID, event_utc, result_float AS Oxygen_Flow_Rate, units
-			FROM REMAPe.ve3Physio 
-			WHERE sub_standard_meaning = 'Oxygen Flow Rate'
-		) AS O2 ON (device.studypatientid = O2.studypatientid AND device.event_utc = O2.event_utc)
+				WHERE sub_standard_meaning = 'Oxygen therapy delivery device' 
+				AND result_str IN ('HFNC device', 'NC', 'Mask', 'Nonrebreather', 'Prebreather')	
+			) AS device
+			JOIN (		
+				SELECT STUDYPATIENTID, event_utc, result_float AS Oxygen_Flow_Rate, units
+				FROM REMAPe.ve3Physio WHERE sub_standard_meaning = 'Oxygen Flow Rate'
+			) AS O2 ON (device.studypatientid = O2.studypatientid AND device.event_utc = O2.event_utc)
 	), CalcFiO2 AS (
-		SELECT * 
-		FROM(
-			SELECT StudyPatientId, event_utc, support_type, 
+		SELECT * FROM
+			(SELECT 
+				StudyPatientId, event_utc, support_type, 
 				CASE
 					WHEN support_type = 'NC' THEN 
 						CASE 
@@ -750,17 +740,25 @@ DROP TABLE REMAPe.ve3CalculatedHourlyFiO2;
 							WHEN Oxygen_Flow_Rate BETWEEN 8 AND 15 THEN 70
 							ELSE NULL
 						END
+					WHEN support_type = 'HFNC device' THEN
+						CASE 
+							WHEN Oxygen_Flow_Rate BETWEEN 8 AND 15 THEN 70
+							WHEN Oxygen_Flow_Rate > 15 THEN 100
+							ELSE NULL
+						END
 					ELSE NULL
 				END AS result_float
-			FROM TempOxygenationDevices
-		) AS IR
-		WHERE result_float IS NOT NULL
+			FROM
+				TempOxygenationDevices
+			) AS IR
+		WHERE 
+			result_float IS NOT NULL
 	), joined_fio2 AS (
 		SELECT STUDYPATIENTID, MAX(result_float) AS result_float, priority, MIN(event_utc) AS event_utc, unix_hour 
 		FROM 
 		 (SELECT STUDYPATIENTID, event_utc, result_float, 0 AS priority, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60)) AS unix_hour  
 		 FROM REMAPe.ve3Physio 
-		 WHERE sub_standard_meaning = 'FiO2'
+		 WHERE sub_standard_meaning = 'FiO2' AND result_float BETWEEN 21 AND 100
 		UNION
 		 SELECT STUDYPATIENTID, event_utc, result_float, 1 AS priority, FLOOR(UNIX_TIMESTAMP(event_utc)/(60*60)) AS unix_hour 
 		 FROM CalcFiO2
@@ -774,43 +772,36 @@ DROP TABLE REMAPe.ve3CalculatedHourlyFiO2;
 	WHERE J.priority = M.min_priority
 ;
 
-
-# REMAP.v3calculatedPFratio
+# REMAPe.ve3calculatedPFratio
 DROP TABLE REMAPe.ve3CalculatedPFratio;
 	CREATE TABLE REMAPe.tempPnearestF
 		WITH PjoinF AS (
 			SELECT P.STUDYPATIENTID, P.result_float as PaO2_float, P.event_utc AS PaO2_utc, 
-				F.result_float AS FiO2_float, F.event_utc AS FiO2_utc, TIMESTAMPDIFF(MINUTE, F.event_utc, P.event_utc) AS delta_minutes
-			FROM (SELECT * FROM REMAPe.ve3Lab WHERE sub_standard_meaning IN ('PaO2')) AS P
-			JOIN (SELECT * FROM REMAPe.ve3CalculatedHourlyFiO2) AS F 
-			ON P.STUDYPATIENTID = F.STUDYPATIENTID 
-				AND F.event_utc BETWEEN ADDDATE(P.event_utc, INTERVAL -24 HOUR) AND P.event_utc
+				F.result_float AS FiO2_float,
+				ifnull(F.event_utc, ADDDATE(P.event_utc, INTERVAL -1439 MINUTE)) AS FiO2_utc,  # handles cases where PaO2 is reported without an FIO2
+				TIMESTAMPDIFF(MINUTE, ifnull(F.event_utc, ADDDATE(P.event_utc, INTERVAL -1439 MINUTE)), P.event_utc) AS delta_minutes
+			FROM
+				(SELECT * FROM REMAPe.ve3Lab WHERE sub_standard_meaning IN ('PaO2')) AS P
+				LEFT JOIN (SELECT * FROM REMAPe.ve3CalculatedHourlyFiO2) AS F 
+				ON P.STUDYPATIENTID = F.STUDYPATIENTID AND F.event_utc BETWEEN ADDDATE(P.event_utc, INTERVAL -24 HOUR) AND P.event_utc
 		), minFs AS (
-			SELECT STUDYPATIENTID, PaO2_utc, MIN(delta_minutes) AS min_delta 
-			FROM PjoinF 
-			GROUP BY STUDYPATIENTID, PaO2_utc
+			SELECT STUDYPATIENTID, PaO2_utc, MIN(delta_minutes) AS min_delta FROM PjoinF GROUP BY STUDYPATIENTID, PaO2_utc
 		)
-		SELECT PF.* 
-		FROM PjoinF PF 
-		JOIN minFs F ON PF.STUDYPATIENTID = F.STUDYPATIENTID AND PF.PaO2_utc = F.PaO2_utc 
+		SELECT PF.* FROM PjoinF PF JOIN minFs F ON PF.STUDYPATIENTID = F.STUDYPATIENTID AND PF.PaO2_utc = F.PaO2_utc 
 		WHERE PF.delta_minutes = F.min_delta
 	;
 	CREATE TABLE REMAPe.tempPnearestE	
 		WITH PjoinE AS (
 			SELECT P.STUDYPATIENTID, P.result_float as PaO2_float, P.event_utc AS PaO2_utc, 
 				E.result_float AS PEEP_float, E.event_utc AS PEEP_utc, TIMESTAMPDIFF(MINUTE, E.event_utc, P.event_utc) AS delta_minutes
-			FROM (SELECT * FROM REMAPe.ve3Lab WHERE sub_standard_meaning IN ('PaO2')) AS P
-			JOIN (SELECT * FROM REMAPe.ve3Physio WHERE sub_standard_meaning IN ('PEEP')) AS E 
-			ON P.STUDYPATIENTID = E.STUDYPATIENTID 
-				AND E.event_utc BETWEEN ADDDATE(P.event_utc, INTERVAL -24 HOUR) AND P.event_utc	
+			FROM
+				(SELECT * FROM REMAPe.ve3Lab WHERE sub_standard_meaning IN ('PaO2')) AS P
+				JOIN (SELECT * FROM REMAPe.ve3Physio WHERE sub_standard_meaning IN ('PEEP')) AS E 
+				ON P.STUDYPATIENTID = E.STUDYPATIENTID AND E.event_utc BETWEEN ADDDATE(P.event_utc, INTERVAL -24 HOUR) AND P.event_utc	
 		), minEs AS (
-			SELECT STUDYPATIENTID, PaO2_utc, MIN(delta_minutes) AS min_delta 
-			FROM PjoinE 
-			GROUP BY STUDYPATIENTID, PaO2_utc
+			SELECT STUDYPATIENTID, PaO2_utc, MIN(delta_minutes) AS min_delta FROM PjoinE GROUP BY STUDYPATIENTID, PaO2_utc
 		)
-		SELECT PE.* 
-		FROM PjoinE PE 
-		JOIN minEs E ON PE.STUDYPATIENTID = E.STUDYPATIENTID AND PE.PaO2_utc = E.PaO2_utc 
+		SELECT PE.* FROM PjoinE PE JOIN minEs E ON PE.STUDYPATIENTID = E.STUDYPATIENTID AND PE.PaO2_utc = E.PaO2_utc 
 		WHERE PE.delta_minutes = E.min_delta
 	;	
 	CREATE TABLE REMAPe.ve3CalculatedPFratio
@@ -820,7 +811,8 @@ DROP TABLE REMAPe.ve3CalculatedPFratio;
 		LEFT JOIN REMAPe.tempPnearestE PE ON PF.STUDYPATIENTID = PE.STUDYPATIENTID AND PF.PaO2_utc = PE.PaO2_utc
  	;
  	DROP TABLE REMAPe.tempPnearestF;
-	DROP TABLE REMAPe.tempPnearestE;
+	DROP TABLE REMAPe.tempPnearestE
+; 
 
 
 ### v3CalculatedPEEPjoinFiO2 ###			
@@ -844,67 +836,132 @@ CREATE TABLE REMAPe.ve3CalculatedPEEPjoinFiO2
 	WHERE PF.delta_minutes = F.min_delta
 ;
 
-# STATE HYPOXIA
+### STATE HYPOXIA ###
 DROP TABLE REMAPe.ve3CalculatedStateHypoxiaAtEnroll;
 	CREATE TABLE REMAPe.ve3CalculatedStateHypoxiaAtEnroll
-		WITH PFmoderate AS (
-				SELECT PF.* 
-				FROM REMAPe.ve3CalculatedPFratio PF 
-				JOIN REMAPe.ve3RandomizedModerate R ON PF.STUDYPATIENTID = R.STUDYPATIENTID
-				WHERE PF.PaO2_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc
-			), minModerate AS (
-				SELECT STUDYPATIENTID, MAX(PaO2_utc) AS max_PaO2_utc 
-				FROM PFmoderate 
-				GROUP BY STUDYPATIENTID 
-			),PFsevere AS (
-				SELECT PF.* 
-				FROM REMAPe.ve3CalculatedPFratio PF 
-				JOIN REMAPe.ve3RandomizedSevere R ON PF.STUDYPATIENTID = R.STUDYPATIENTID
-				WHERE PF.PaO2_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc
-			), minSevere AS (
-				SELECT STUDYPATIENTID, MAX(PaO2_utc) AS max_PaO2_utc 
-				FROM PFsevere 
-				GROUP BY STUDYPATIENTID 
-			), IMV AS ( # by definition, IMV is only possible for Severe state
-				SELECT DISTINCT I.STUDYPATIENTID, 1 AS OnInvasiveVent 
-				FROM (SELECT STUDYPATIENTID, event_utc FROM REMAPe.ve3OrganSupportInstance WHERE support_type = 'IMV') AS I
+	WITH PFmoderate AS (
+			SELECT PF.* FROM REMAPe.ve3CalculatedPFratio PF JOIN REMAPe.ve3RandomizedModerate R ON PF.STUDYPATIENTID = R.STUDYPATIENTID
+			WHERE PF.PaO2_utc <= R.randomized_utc
+		), minModerate AS (
+			SELECT STUDYPATIENTID, MAX(PaO2_utc) AS max_PaO2_utc FROM PFmoderate GROUP BY STUDYPATIENTID 
+		), PFsevere AS (
+			SELECT PF.* FROM REMAPe.ve3CalculatedPFratio PF JOIN REMAPe.ve3RandomizedSevere R ON PF.STUDYPATIENTID = R.STUDYPATIENTID
+			WHERE PF.PaO2_utc <= R.randomized_utc
+		), minSevere AS (
+			SELECT STUDYPATIENTID, MAX(PaO2_utc) AS max_PaO2_utc FROM PFsevere GROUP BY STUDYPATIENTID 
+		), IMV AS ( # by definition, IMV is only possible for Severe state
+			SELECT DISTINCT I.STUDYPATIENTID, 1 AS OnInvasiveVent 
+			FROM 
+				(SELECT STUDYPATIENTID, event_utc FROM REMAPe.ve3OrganSupportInstance WHERE support_type = 'IMV') AS I
 				JOIN REMAPe.ve3RandomizedSevere R ON (I.STUDYPATIENTID = R.STUDYPATIENTID)
-				WHERE I.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc
-			), allJoined AS (
-				SELECT PF.*, 'Moderate' AS RandomizationType, 0 AS OnInvasiveVent 
-				FROM PFmoderate PF 
+			WHERE I.event_utc <= R.randomized_utc
+		), allJoined AS (
+			SELECT PF.*, 'Moderate' AS RandomizationType, 0 AS OnInvasiveVent FROM PFmoderate PF 
 				JOIN minModerate M ON PF.STUDYPATIENTID = M.STUDYPATIENTID AND PF.PaO2_utc = M.max_PaO2_utc 
-				UNION 
-				SELECT PF.*, 'Severe' AS RandomizationType, if(IMV.OnInvasiveVent IS NULL, 0, 1) 
-				FROM PFsevere PF 
+			UNION 
+			SELECT PF.*, 'Severe' AS RandomizationType, if(IMV.OnInvasiveVent IS NULL, 0, 1) FROM PFsevere PF 
 				JOIN minSevere M ON PF.STUDYPATIENTID = M.STUDYPATIENTID AND PF.PaO2_utc = M.max_PaO2_utc
-				LEFT JOIN IMV ON PF.STUDYPATIENTID = IMV.STUDYPATIENTID   
-			)
-			SELECT A.STUDYPATIENTID, A.RandomizationType,
-				CASE 
-					WHEN A.OnInvasiveVent = 1 AND A.PaO2_float IS NOT NULL AND A.PEEP_float IS NOT NULL AND A.PF_ratio IS NOT NULL 
-						THEN if(A.PEEP_float >= 5 AND A.PF_ratio < 200, 3, 2)
-					WHEN A.OnInvasiveVent = 1 THEN 2
-					ELSE 1
-				END AS StateHypoxia,
-				A.onInvasiveVent, A.PaO2_float, A.PaO2_utc, A.PEEP_float, A.PEEP_utc, A.PF_ratio, A.FiO2_float, A.FiO2_utc 
-			FROM allJoined A
+				LEFT JOIN IMV ON PF.STUDYPATIENTID = IMV.STUDYPATIENTID  
+		), IMVwithoutPaO2 AS (
+			SELECT *
+			FROM IMV
+			WHERE studypatientid NOT IN (SELECT DISTINCT studypatientid FROM allJoined WHERE RandomizationType = 'Severe')
+				AND studypatientid NOT IN (SELECT DISTINCT studypatientid FROM REMAP.v3RandomizedModerate)
+		), allJoinedPlus AS (
+			SELECT * FROM allJoined
+			UNION
+			SELECT 
+				StudyPatientID, NULL AS PF_ratio, NULL AS PaO2_float, NULL AS PaO2_utc,
+				NULL AS FiO2_float, NULL AS FiO2_utc, NULL AS PEEP_float, NULL AS PEEP_utc,  
+				'Severe' AS RandomizationType, onInvasiveVent
+			FROM IMVwithoutPaO2
+		)
+		SELECT A.StudyPatientID, A.RandomizationType,
+			CASE 
+				WHEN A.OnInvasiveVent = 1 AND A.PaO2_float IS NOT NULL AND A.PEEP_float IS NOT NULL AND A.PF_ratio IS NOT NULL 
+					THEN if(A.PEEP_float >= 5 AND A.PF_ratio < 200, 3, 2)
+				WHEN A.OnInvasiveVent = 1 THEN 2
+				ELSE 1
+			END AS StateHypoxia,
+			A.onInvasiveVent, A.PaO2_float, A.PaO2_utc, A.PEEP_float, A.PEEP_utc, A.PF_ratio, A.FiO2_float, A.FiO2_utc 
+		FROM allJoinedPlus A
 ;
 
-/* ############# this section is not yet built ################ 
+
+/*  ################################## CANNOT CREATE UNTIL VASO MEDS ARE AVALIABLE ################################
 ### v3CalculatedSOFA ###
 DROP TABLE REMAPe.ve3CalculatedSOFA;	
 	CREATE TABLE REMAPe.ve3CalculatedSOFA
-;*/
-	
-SELECT * FROM REMAPe.ve3SupplementalOxygenInstance LIMIT 1000;	
-SELECT * FROM REMAPe.ve3CalculatedHourlyFiO2 LIMIT 1000;
-SELECT * FROM REMAPe.ve3CalculatedPFratio LIMIT 1000;
-SELECT * FROM REMAPe.ve3CalculatedStateHypoxiaAtEnroll;
+		## MAP
+		SELECT CEP.StudyPatientId, SD.study_day, 1 AS score, RandomizationType
+		FROM (
+			SELECT StudyPatientID, event_utc, result_float
+			FROM REMAPe.ve3Physio 
+			WHERE sub_standard_meaning IN ('Blood Pressure (MAP)') AND result_float < 70
+		) AS CEP	
+		JOIN REMAPe.ve3StudyDay SD 
+			ON (CEP.StudyPatientId = SD.StudyPatientId AND event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
+		UNION
+		## MAP-calculated 	
+		SELECT StudyPatientId, study_day, 1 AS score, RandomizationType
+		FROM (
+			SELECT D.STUDYPATIENTID, SD.study_day, (D.result_float * 2 + S.result_float)/3 AS result_float, RandomizationType
+			FROM REMAPe.ve3Physio AS D
+			JOIN REMAPe.ve3Physio AS S ON (D.StudyPatientID = S.StudyPatientID AND D.event_utc = S.event_utc)			
+			JOIN REMAPe.ve3StudyDay SD 
+				ON (D.StudyPatientId = SD.StudyPatientId AND D.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
+			WHERE D.sub_standard_meaning IN ('Blood pressure (arterial diastolic)') 
+				AND S.sub_standard_meaning IN ('Blood pressure (arterial systolic)')
+		) AS calculated_MAP
+		WHERE result_float < 70
+		# vaso-based
+		UNION
+		SELECT StudyPatientId, study_day, score, RandomizationType
+		FROM (
+			WITH med AS (
+				SELECT M.StudyPatientID, M.event_utc AS med_utc, M.admin_dosage, M.units, M.route, 
+					CV.display, study_day, RandomizationType
+				FROM REMAPe.ve3Med M
+				JOIN CT_DATA.MAR_AD MAR ON M.event_id = MAR.event_id
+				JOIN CT_DATA.CODE_VALUE CV ON (MAR.event_cd = CV.code_value) 
+				JOIN REMAP.v3StudyDay SD ON (M.StudyPatientId = SD.StudyPatientId 
+					AND event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
+				WHERE MINUTE(event_utc) = 0
+			),	weight AS (
+				SELECT StudyPatientID, event_utc AS weight_utc, result_float AS weight, units AS weight_units
+				FROM REMAP.v3Physio
+				WHERE sub_standard_meaning = 'Weight (kg)'
+			), joined AS (
+				SELECT med.*, weight, weight_units, weight_utc,
+					admin_dosage*1000/weight/60 AS converted_dose, 'mcg/kg/min' AS converted_units,
+					TIMESTAMPDIFF(MINUTE, weight_utc, med_utc) AS minutes_since_weight 
+				FROM med 
+				JOIN weight ON (med.StudyPatientID = weight.StudyPatientID AND med_utc >= weight_utc)
+			), min_point AS (	
+				SELECT StudyPatientID, med_utc, RandomizationType, MIN(minutes_since_weight) AS min_MSW 
+				FROM joined 
+				GROUP BY StudyPatientID, med_utc, RandomizationType
+			), keeper_meds AS (
+				SELECT joined.*
+				FROM joined 
+				JOIN min_point ON (joined.StudyPatientID = min_point.StudyPatientID 
+					AND joined.med_utc = min_point.med_utc 
+					AND joined.RandomizationType = min_point.RandomizationType
+					AND joined.minutes_since_weight = min_point.min_MSW)
+			)
+			SELECT StudyPatientID, study_day, 
+				REMAP.convert_vaso_to_sofa_points(TS.sub_standard_meaning, converted_dose) AS score,
+				RandomizationType
+			FROM keeper_meds
+			JOIN COVID_SUPPLEMENT.TEXT_STANDARDIZATION TS ON (keeper_meds.display = TS.source_text)
+		) AS V
+		ORDER BY StudyPatientID, RandomizationType, study_day, score DESC
+;
+*/
 
-
-
+			
 /* **************************** */
 
+SELECT 've3 build is finished' AS Progress;
 
 
