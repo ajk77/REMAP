@@ -190,10 +190,12 @@ DELETE FROM REMAP.v3IdMap
 ### pull relevant labs ###
 DROP TABLE REMAP.v3Lab;
 CREATE TABLE REMAP.v3Lab
-	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, CV.display as units
+	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, 
+		CV.display as units, L.RESULT_VAL AS documented_val, NORMAL_LOW, NORMAL_HIGH
 	FROM  
 		(SELECT DISTINCT EVENT_ID, ENCNTR_ID, EVENT_CD, REMAP.to_utc(EVENT_END_DT_TM) AS event_utc, 
-			REMAP.get_prefix(RESULT_VAL) as prefix, REMAP.to_float(RESULT_VAL) AS result_float, result_units_cd
+			REMAP.get_prefix(RESULT_VAL) as prefix, REMAP.to_float(RESULT_VAL) AS result_float, result_units_cd,
+			RESULT_VAL, NORMAL_LOW, NORMAL_HIGH
 		FROM CT_DATA.CE_LAB
 		WHERE encntr_id IN (SELECT encntr_id FROM REMAP.v3IdMap)
 			AND EVENT_CD IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('CE_LAB')) 
@@ -206,7 +208,7 @@ CREATE TABLE REMAP.v3Lab
 
 ### pull relevant physio ###
 CREATE TABLE REMAP.tempv3Physio
-	SELECT DISTINCT EVENT_ID, ENCNTR_ID, EVENT_CD, EVENT_END_DT_TM, RESULT_VAL, result_units_cd 
+	SELECT DISTINCT EVENT_ID, ENCNTR_ID, EVENT_CD, EVENT_END_DT_TM, RESULT_VAL, result_units_cd, NORMAL_LOW, NORMAL_HIGH 
 		FROM CT_DATA.CE_PHYSIO
 		WHERE encntr_id IN (SELECT encntr_id FROM REMAP.v3IdMap)
 			AND EVENT_CD IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('CE_PHYSIO'))
@@ -214,10 +216,12 @@ CREATE TABLE REMAP.tempv3Physio
 	## the table for numeric physio value ##
 	DROP TABLE REMAP.v3Physio;
 	CREATE TABLE REMAP.v3Physio
-		SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, CV.display AS units
+		SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, 
+			CV.display AS units, L.RESULT_VAL AS documented_val, NORMAL_LOW, NORMAL_HIGH
 		FROM  
 			(SELECT EVENT_ID, ENCNTR_ID, EVENT_CD, REMAP.to_utc(EVENT_END_DT_TM) AS event_utc, 
-				REMAP.get_prefix(RESULT_VAL) as prefix, REMAP.to_float(RESULT_VAL) AS result_float, result_units_cd
+				REMAP.get_prefix(RESULT_VAL) as prefix, REMAP.to_float(RESULT_VAL) AS result_float, result_units_cd,
+				RESULT_VAL, NORMAL_LOW, NORMAL_HIGH
 			FROM REMAP.tempv3Physio
 			) AS L 
 			JOIN REMAP.v3IdMap M ON L.ENCNTR_ID = M.ENCNTR_ID
