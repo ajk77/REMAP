@@ -616,11 +616,11 @@ DROP TABLE REMAP.v3RRTInstance;
 	CREATE TABLE REMAP.v3RRTInstance
 		SELECT DISTINCT event_id, studypatientid, event_utc, 'RRT' AS support_type, documented_source
 			FROM
-			  (SELECT *, '' AS prefix, 'IO' AS documented_source
+			  (SELECT event_id, studypatientid, event_utc, '' AS prefix, 'IO' AS documented_source 
 				FROM REMAP.v3IO
 				WHERE sub_standard_meaning = 'RRT' AND RESULT_FLOAT > 0
 			  UNION
-				SELECT *, 'Physio' AS documented_source
+				SELECT event_id, studypatientid, event_utc, prefix, 'Physio' AS documented_source
 				FROM REMAP.v3Physio
 				WHERE sub_standard_meaning = 'RRT'
 			) AS RRT
@@ -688,6 +688,12 @@ DROP TABLE REMAP.v3CalculatedHourlyFiO2;
 							WHEN Oxygen_Flow_Rate <= 2 THEN 28
 							WHEN Oxygen_Flow_Rate <= 3 THEN 32
 							WHEN Oxygen_Flow_Rate <= 4 THEN 36
+							WHEN Oxygen_Flow_Rate <= 5 THEN 40
+							WHEN Oxygen_Flow_Rate <= 6 THEN 44
+							WHEN Oxygen_Flow_Rate <= 7 THEN 48
+							WHEN Oxygen_Flow_Rate <= 8 THEN 52
+							WHEN Oxygen_Flow_Rate <= 9 THEN 56
+							WHEN Oxygen_Flow_Rate <= 10 THEN 60
 							ELSE NULL
 						END
 					WHEN support_type = 'Mask' THEN
@@ -698,6 +704,7 @@ DROP TABLE REMAP.v3CalculatedHourlyFiO2;
 					WHEN support_type = 'Nonrebreather' THEN
 						CASE 
 							WHEN Oxygen_Flow_Rate BETWEEN 8 AND 15 THEN 95
+							WHEN Oxygen_Flow_Rate > 15 THEN 99
 							ELSE NULL
 						END
 					WHEN support_type = 'Prebreather' THEN
