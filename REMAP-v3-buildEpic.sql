@@ -210,11 +210,13 @@ SELECT * FROM REMAPe.ve3LocOrder;
 ### pull relevant labs ###
 DROP TABLE REMAPe.ve3Lab;
 CREATE TABLE REMAPe.ve3Lab
-	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, L.units
+	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, L.units,
+		documented_val, NORMAL_LOW, NORMAL_HIGH
 	FROM  
 		(SELECT DISTINCT order_proc_id AS event_id, PAT_ENC_CSN_ID AS FIN, COMPONENT_ID AS EVENT_CD,
 			REMAP.to_utc(RESULT_TIME) AS event_utc,
-			REMAP.get_prefix(ORD_VALUE) as prefix, REMAP.to_float(ORD_VALUE) AS result_float, REFERENCE_UNIT AS units
+			REMAP.get_prefix(ORD_VALUE) as prefix, REMAP.to_float(ORD_VALUE) AS result_float, REFERENCE_UNIT AS units,
+			ORD_VALUE AS documented_val, Reference_Low AS NORMAL_LOW, Reference_High AS NORMAL_HIGH
 		FROM COVID_PINNACLE.ORDER_RESULTS
 		WHERE PAT_ENC_CSN_ID IN (SELECT FIN FROM REMAPe.ve3IdMap)
 			AND COMPONENT_ID IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('ORDER_RESULTS'))
@@ -228,7 +230,8 @@ CREATE TABLE REMAPe.ve3Lab
 ### pull relevant physio ###
 CREATE TABLE REMAPe.tempv3Physio
 	SELECT DISTINCT M.FSD_ID AS EVENT_ID, R.INPATIENT_DATA_ID AS encntr_id, M.FLO_MEAS_ID AS EVENT_CD, 
-			REMAP.to_datetime_epic(RECORDED_TIME) as EVENT_END_DT_TM, MEAS_VALUE as RESULT_VAL, '' as result_units_cd 
+			REMAP.to_datetime_epic(RECORDED_TIME) as EVENT_END_DT_TM, MEAS_VALUE as RESULT_VAL, '' as result_units_cd,
+			NULL AS NORMAL_LOW, NULL AS NORMAL_HIGH
 		FROM COVID_PINNACLE.IP_FLWSHT_MEAS M
 		JOIN COVID_PINNACLE.IP_FLWSHT_REC R ON R.FSD_ID = M.FSD_ID
 		WHERE R.INPATIENT_DATA_ID IN (SELECT encntr_id FROM REMAPe.ve3IdMap)
@@ -236,7 +239,8 @@ CREATE TABLE REMAPe.tempv3Physio
 	;
 	## parse out diastolic bp. (systolic is handard by normal parse function) ##
 	INSERT INTO REMAPe.tempv3Physio
-		SELECT EVENT_ID, ENCNTR_ID, -5 AS EVENT_CD, EVENT_END_DT_TM, REMAP.extract_diastolic(RESULT_VAL), result_units_cd 
+		SELECT EVENT_ID, ENCNTR_ID, -5 AS EVENT_CD, EVENT_END_DT_TM, REMAP.extract_diastolic(RESULT_VAL), result_units_cd,
+			NULL AS NORMAL_LOW, NULL AS NORMAL_HIGH 
 		FROM REMAPe.tempv3Physio 
 		WHERE EVENT_CD = 
 			(SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('IP_FLWSHT_MEAS') 
@@ -245,10 +249,12 @@ CREATE TABLE REMAPe.tempv3Physio
 	## the table for numeric physio value ##
 	DROP TABLE REMAPe.ve3Physio;
 	CREATE TABLE REMAPe.ve3Physio
-		SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, '' AS units
+		SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, '' AS units,
+			NORMAL_LOW, NORMAL_HIGH
 		FROM  
 			(SELECT EVENT_ID, ENCNTR_ID, EVENT_CD, REMAP.to_utc(EVENT_END_DT_TM) AS event_utc, 
-				REMAP.get_prefix(RESULT_VAL) as prefix, REMAP.to_float(RESULT_VAL) AS result_float
+				REMAP.get_prefix(RESULT_VAL) as prefix, REMAP.to_float(RESULT_VAL) AS result_float, 
+				RESULT_VAL as documented_val, NORMAL_LOW, NORMAL_HIGH
 			FROM REMAPe.tempv3Physio
 			) AS L 
 			JOIN REMAPe.ve3IdMap M ON L.ENCNTR_ID = M.ENCNTR_ID
@@ -262,65 +268,44 @@ CREATE TABLE REMAPe.tempv3Physio
 			(SELECT EVENT_ID, ENCNTR_ID, EVENT_CD, REMAP.to_utc(EVENT_END_DT_TM) AS event_utc, 
 				RESULT_VAL, result_units_cd
 			FROM REMAPe.tempv3Physio
-			WHERE EVENT_CD IN (SELECT SOURCE_CV FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE sub_standard_meaning 
-				IN ('Oxygen therapy delivery device',/* 'ECMO',*/ 'Mode'/*,  'Endotube placement', 'Tube status', 'Airway'*/))
+			WHERE EVENT_CD IN (SELECT SOURCE_CV FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('IP_FLWSHT_MEAS') 
+				AND sub_standard_meaning IN ('Oxygen therapy delivery device', 'ECMO', 'Mode',  'Endotube Placement/Tube Status', 'Airway'))
 			) AS L 
 			JOIN REMAPe.ve3IdMap M ON L.ENCNTR_ID = M.ENCNTR_ID
 			JOIN COVID_SUPPLEMENT.CV_STANDARDIZATION S ON L.EVENT_CD = S.source_cv
 		WHERE RESULT_VAL IS NOT NULL;
 DROP TABLE REMAPe.tempv3Physio; 
 
-### pull relevant IO ###
-/* ########################## RRT is Physio. This table may not be needed ################ 
-DROP TABLE REMAPe.ve3IO;
-CREATE TABLE REMAPe.ve3IO
-	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.result_float, '' AS units
-	FROM  
-		(SELECT DISTINCT EVENT_ID, ENCNTR_ID, REFERENCE_EVENT_CD AS EVENT_CD, REMAP.to_utc(IO_END_DT_TM) AS event_utc, 
-			IO_VOLUME AS result_float
-		FROM CT_DATA.CE_INTAKE_OUTPUT_RESULT
-		WHERE encntr_id IN (SELECT encntr_id FROM REMAP.ve3IdMap)
-			AND REFERENCE_EVENT_CD IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('CE_INTAKE_OUTPUT_RESULT')
-			) 
-		) AS L 
-		JOIN REMAP.v3eIdMap M ON L.ENCNTR_ID = M.ENCNTR_ID
-		JOIN COVID_SUPPLEMENT.CV_STANDARDIZATION S ON L.EVENT_CD = S.source_cv
-	WHERE result_float IS NOT NULL
-; */
+### no IO in Pinnacle ###
 
-/* ########################## Need vaso codes before implmenting this ################ 
 ### pull relevant meds ###
 DROP TABLE REMAPe.ve3Med;
 CREATE TABLE REMAPe.ve3Med
-	SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.ADMIN_DOSAGE, CVunit.display AS units, CVroute.display AS route
-	FROM  
-		(SELECT DISTINCT EVENT_ID, ENCNTR_ID, EVENT_CD, REMAP.to_utc(ADMIN_START_DT_TM) AS event_utc, 
-			ADMIN_DOSAGE, DOSAGE_UNIT_CD, ADMIN_ROUTE_CD
-		FROM CT_DATA.MAR_AD
-		WHERE encntr_id IN (SELECT encntr_id FROM REMAP.v3IdMap)
-			AND EVENT_CD IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('MAR_AD')
-			) 
+	SELECT L.EVENT_ID, M.STUDYPATIENTID, REMAP.to_utc(MAR.TAKEN_TIME) AS event_utc, S.sub_standard_meaning, 
+		MAR.INFUSION_RATE AS ADMIN_DOSAGE, U.abbr AS units, null AS route, S.source_display AS generic_name
+	FROM 
+		(SELECT DISTINCT ORDER_MED_ID AS EVENT_ID, PAT_ENC_CSN_ID AS FIN, MEDICATION_ID AS EVENT_CD, NULL AS event_utc
+		FROM COVID_PINNACLE.ORDER_MEDINFO
+		WHERE PAT_ENC_CSN_ID IN (SELECT FIN FROM REMAPe.ve3IdMap) 
+			AND MEDICATION_ID IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('ORDER_MEDINFO'))
 		) AS L 
-		JOIN REMAP.v3eIdMap M ON L.ENCNTR_ID = M.ENCNTR_ID
+		JOIN COVID_PINNACLE.MAR_ADMIN_INFO MAR ON L.EVENT_ID = MAR.ORDER_MED_ID
+		JOIN REMAPe.ve3IdMap M ON L.FIN = M.FIN
 		JOIN COVID_SUPPLEMENT.CV_STANDARDIZATION S ON L.EVENT_CD = S.source_cv
-		JOIN CT_DATA.CODE_VALUE CVunit ON L.DOSAGE_UNIT_CD = CVunit.code_value
-		JOIN CT_DATA.CODE_VALUE CVroute ON L.ADMIN_ROUTE_CD = CVroute.code_value
-	WHERE ADMIN_DOSAGE IS NOT NULL AND ADMIN_DOSAGE > 0
-;*/ 
+		JOIN COVID_PINNACLE.ZC_MED_UNIT U ON MAR.DOSE_UNIT_C = U.disp_qtyunit_c	
+	WHERE MAR.INFUSION_RATE IS NOT NULL AND MAR.INFUSION_RATE > 0
+;
 
-
-/* **************************** */
 
 ### Create OrganSupportTnstance  ###
 DROP TABLE REMAPe.ve3OrganSupportInstance;
 	CREATE TABLE REMAPe.ve3OrganSupportInstance
-/*	############# this section is not yet built ################ 
 	# VASO #
 			SELECT event_id, studypatientid, event_utc, 'Vasopressor' AS support_type, NULL AS documented_source
-			FROM REMAPe.v3eMed
+			FROM REMAPe.ve3Med
 			WHERE sub_standard_meaning = 'Vasopressor'
 	   UNION  # HFNC #
-*/			SELECT D.event_id, D.studypatientid, O.event_utc, 'HFNC' AS support_type, NULL AS documented_source
+			SELECT D.event_id, D.studypatientid, O.event_utc, 'HFNC' AS support_type, NULL AS documented_source
 			FROM 
 				(SELECT *
 				 FROM REMAPe.ve3PhysioStr
@@ -334,12 +319,11 @@ DROP TABLE REMAPe.ve3OrganSupportInstance;
 				  FROM REMAPe.ve3Physio 
 				  WHERE sub_standard_meaning = 'FiO2' AND result_float >= 40
 				) AS F ON (O.studypatientid = F.studypatientid AND O.event_utc = F.event_utc)
-/*		############# this section is not yet built ################ 
 		UNION # ECMO #
 			SELECT event_id, studypatientid, event_utc, 'ECMO' AS support_type, NULL AS documented_source
-			FROM REMAP.ve3PhysioStr
+			FROM REMAPe.ve3PhysioStr
 			WHERE sub_standard_meaning = 'ECMO'
-*/		UNION # NIV #
+		UNION # NIV #
 		SELECT event_id, NIV.studypatientid, event_utc, 'NIV' AS support_type, sub_standard_meaning AS documented_source
 			FROM 
 				(SELECT * 
@@ -358,15 +342,11 @@ DROP TABLE REMAPe.ve3OrganSupportInstance;
 			  UNION
 				SELECT *, 'Endotube placement' AS documented_source
 				FROM REMAPe.ve3PhysioStr
-				WHERE sub_standard_meaning = 'Endotube placement' AND result_str = 'IV tube present'
-			  UNION
-				SELECT *, 'Tube status' AS documented_source
-				FROM REMAPe.ve3PhysioStr
-				WHERE sub_standard_meaning = 'Tube status' AND result_str = 'IV status'
+				WHERE sub_standard_meaning = 'Endotube Placement/Tube Status'  # may need split. And definitions added to get_physio_result_str_epic()
 			  UNION			
 				SELECT *, 'Airway' AS documented_source
 				FROM REMAPe.ve3PhysioStr
-				WHERE sub_standard_meaning = 'Airway' AND result_str = 'Endotracheal'
+				WHERE sub_standard_meaning = 'Airway' #AND result_str = 'Endotracheal'
 			  UNION			
 				SELECT *, 'Mode' AS documented_source
 				FROM REMAPe.ve3PhysioStr
@@ -653,7 +633,7 @@ SELECT * FROM REMAPe.ve3IcuStay;
 
 ### ve3RRTInstance ####
 DROP TABLE REMAPe.ve3RRTInstance;
-	CREATE TABLE REMAP.v3RRTInstance
+	CREATE TABLE REMAPe.ve3RRTInstance
 		SELECT DISTINCT event_id, studypatientid, event_utc, 'RRT' AS support_type, documented_source
 			FROM
 			  (SELECT *, 'Physio' AS documented_source
@@ -723,6 +703,12 @@ DROP TABLE REMAPe.ve3CalculatedHourlyFiO2;
 							WHEN Oxygen_Flow_Rate <= 2 THEN 28
 							WHEN Oxygen_Flow_Rate <= 3 THEN 32
 							WHEN Oxygen_Flow_Rate <= 4 THEN 36
+							WHEN Oxygen_Flow_Rate <= 5 THEN 40
+							WHEN Oxygen_Flow_Rate <= 6 THEN 44
+							WHEN Oxygen_Flow_Rate <= 7 THEN 48
+							WHEN Oxygen_Flow_Rate <= 8 THEN 52
+							WHEN Oxygen_Flow_Rate <= 9 THEN 56
+							WHEN Oxygen_Flow_Rate <= 10 THEN 60
 							ELSE NULL
 						END
 					WHEN support_type = 'Mask' THEN
@@ -733,6 +719,7 @@ DROP TABLE REMAPe.ve3CalculatedHourlyFiO2;
 					WHEN support_type = 'Nonrebreather' THEN
 						CASE 
 							WHEN Oxygen_Flow_Rate BETWEEN 8 AND 15 THEN 95
+							WHEN Oxygen_Flow_Rate > 15 THEN 99
 							ELSE NULL
 						END
 					WHEN support_type = 'Prebreather' THEN
@@ -836,7 +823,7 @@ CREATE TABLE REMAPe.ve3CalculatedPEEPjoinFiO2
 	WHERE PF.delta_minutes = F.min_delta
 ;
 
-### STATE HYPOXIA ###
+### STATE HYPOXIA ### 
 DROP TABLE REMAPe.ve3CalculatedStateHypoxiaAtEnroll;
 	CREATE TABLE REMAPe.ve3CalculatedStateHypoxiaAtEnroll
 	WITH PFmoderate AS (
@@ -888,7 +875,6 @@ DROP TABLE REMAPe.ve3CalculatedStateHypoxiaAtEnroll;
 ;
 
 
-/*  ################################## CANNOT CREATE UNTIL VASO MEDS ARE AVALIABLE ################################
 ### v3CalculatedSOFA ###
 DROP TABLE REMAPe.ve3CalculatedSOFA;	
 	CREATE TABLE REMAPe.ve3CalculatedSOFA
@@ -920,16 +906,14 @@ DROP TABLE REMAPe.ve3CalculatedSOFA;
 		FROM (
 			WITH med AS (
 				SELECT M.StudyPatientID, M.event_utc AS med_utc, M.admin_dosage, M.units, M.route, 
-					CV.display, study_day, RandomizationType
+					generic_name as display, study_day, RandomizationType
 				FROM REMAPe.ve3Med M
-				JOIN CT_DATA.MAR_AD MAR ON M.event_id = MAR.event_id
-				JOIN CT_DATA.CODE_VALUE CV ON (MAR.event_cd = CV.code_value) 
-				JOIN REMAP.v3StudyDay SD ON (M.StudyPatientId = SD.StudyPatientId 
+				JOIN REMAPe.ve3StudyDay SD ON (M.StudyPatientId = SD.StudyPatientId 
 					AND event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 				WHERE MINUTE(event_utc) = 0
 			),	weight AS (
 				SELECT StudyPatientID, event_utc AS weight_utc, result_float AS weight, units AS weight_units
-				FROM REMAP.v3Physio
+				FROM REMAPe.ve3Physio
 				WHERE sub_standard_meaning = 'Weight (kg)'
 			), joined AS (
 				SELECT med.*, weight, weight_units, weight_utc,
@@ -950,14 +934,13 @@ DROP TABLE REMAPe.ve3CalculatedSOFA;
 					AND joined.minutes_since_weight = min_point.min_MSW)
 			)
 			SELECT StudyPatientID, study_day, 
-				REMAP.convert_vaso_to_sofa_points(TS.sub_standard_meaning, converted_dose) AS score,
+				REMAP.convert_vaso_to_sofa_points(display, converted_dose) AS score,
 				RandomizationType
 			FROM keeper_meds
-			JOIN COVID_SUPPLEMENT.TEXT_STANDARDIZATION TS ON (keeper_meds.display = TS.source_text)
 		) AS V
 		ORDER BY StudyPatientID, RandomizationType, study_day, score DESC
 ;
-*/
+
 
 			
 /* **************************** */

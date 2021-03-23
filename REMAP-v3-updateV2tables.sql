@@ -599,9 +599,6 @@ NAVIGATION:
 	;
 	
 	
-/* #################### BELOW HERE IS NOT V3 Optimized ###################### */
-
-	
 
 DROP TABLE COVID_PHI.v2ApacheeVarS;
 CREATE TABLE COVID_PHI.v2ApacheeVarS
@@ -945,7 +942,7 @@ CREATE TABLE COVID_PHI.v2ApacheeVarS
 			(SELECT StudyPatientID, event_utc AS event_time_utc, result_float AS RESULT_VAL, 
 				ROUND(result_float+.1, 0) as rounded_result_val  
 			FROM REMAP.v3Lab 
-			WHERE sub_standard_meaning IN ('White blood count')
+			WHERE sub_standard_meaning IN ('White blood count', 'Lymphocyte count')
 			) AS M
 		JOIN REMAP.v3RandomizedSevere R ON M.StudyPatientID = R.StudyPatientID 
 		WHERE M.event_time_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc	

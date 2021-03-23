@@ -190,7 +190,7 @@ BEGIN
 			ELSE 
 				SET score = 1;
 			END IF;
-		ELSEIF med_name = 'Norepinephrine' THEN 
+		ELSEIF med_name IN ('Norepinephrine', 'norepinephrine') THEN 
 			IF converted_dose <= 0.1 THEN 
 				SET score = 3;
 			ELSEIF converted_dose <= 0.3 THEN 
@@ -200,9 +200,9 @@ BEGIN
 			ELSE 
 				SET score = 1;
 			END IF;
-		ELSEIF med_name = 'Phenylephrine' THEN 
+		ELSEIF med_name IN ('Phenylephrine', 'phenylephrine 1') THEN 
 			SET score = 3;
-		ELSEIF med_name = 'Vasopressin' THEN 
+		ELSEIF med_name IN ('Vasopressin', 'vasopressin') THEN 
 			SET score = 3;
 		ELSEIF med_name = 'Milrinone' THEN 
 			SET score = 2;

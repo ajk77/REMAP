@@ -1,3 +1,8 @@
+------------------------------changelist 2021/03/22------------------------------
+Various patches have been pushed over the last month.
+
+This commit includes the build out for pinnacle. Reimplementing the views still remains.  
+
 ------------------------------changelist 2021/02/26------------------------------
 Improved documentation at the top of most files. 
 Fixed bug where v2RRT tables weren't showing RRT from the IO source tables.  
