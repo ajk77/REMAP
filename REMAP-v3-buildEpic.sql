@@ -244,8 +244,17 @@ CREATE TABLE REMAPe.tempv3Physio
 		FROM REMAPe.tempv3Physio 
 		WHERE EVENT_CD = 
 			(SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('IP_FLWSHT_MEAS') 
-				AND sub_standard_meaning = 'Blood pressure (systolic)')
-	;
+				AND sub_standard_meaning = 'Blood pressure (systolic)');
+	INSERT INTO REMAPe.tempv3Physio
+		SELECT EVENT_ID, ENCNTR_ID, -301260 AS EVENT_CD, EVENT_END_DT_TM, REMAP.extract_diastolic(RESULT_VAL), result_units_cd,
+			NULL AS NORMAL_LOW, NULL AS NORMAL_HIGH 
+		FROM REMAPe.tempv3Physio 
+		WHERE EVENT_CD = 301260;
+	INSERT INTO REMAPe.tempv3Physio
+		SELECT EVENT_ID, ENCNTR_ID, -301280 AS EVENT_CD, EVENT_END_DT_TM, REMAP.extract_diastolic(RESULT_VAL), result_units_cd,
+			NULL AS NORMAL_LOW, NULL AS NORMAL_HIGH 
+		FROM REMAPe.tempv3Physio 
+		WHERE EVENT_CD = 301280;
 	## the table for numeric physio value ##
 	DROP TABLE REMAPe.ve3Physio;
 	CREATE TABLE REMAPe.ve3Physio

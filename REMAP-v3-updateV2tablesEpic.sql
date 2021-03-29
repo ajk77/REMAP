@@ -15,7 +15,7 @@ NAVIGATION:
 	/ ve2StudyDayS /
 	/ ve2HourlyFiO2MeasurementsM /
 	/ ve2HourlyFiO2MeasurementsS /
-	/ ve2ApacheeVarS / # still need a handful of codes to fill all vars #
+	/ ve2ApacheeVarS / 
 	
 */
 
@@ -528,7 +528,7 @@ CREATE TABLE REMAPe.ve2ApacheeVarS
 			) AS M
 		JOIN REMAPe.ve3RandomizedSevere R ON M.StudyPatientID = R.StudyPatientID 
 		WHERE M.event_time_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc	
-; SELECT * FROM COVID_PHI.v2ApacheeVarS;
+; SELECT * FROM REMAPe.ve2ApacheeVarS;
 	
 
 	
