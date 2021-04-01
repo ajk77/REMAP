@@ -10,6 +10,8 @@ NAVIGATION:
 	REMAP.v3RandomizationMatchingWithV2 -> FROM COVID_PHI.v2EnrolledPerson, REMAP.v3RandomizedModerate,REMAP.v3RandomizedSevere 
 	COVID_PHI.v2ApacheeScoreS -> FROM COVID_PHI.v2ApacheeVarS, COVID_PHI.v2EnrolledPerson, COVID_PHI.GCS_scores, CA_DB.INTAKE_FORM
 	COVID_PHI.v2ApacheeDebug -> FROM apachee_baseline
+	REMAPe.ve2ApacheeScoreS -> FROM REMAPe.ve2ApacheeVarS, REMAPe.ve2EnrolledPerson, COVID_PHI.GCS_scores, CA_DB.INTAKE_FORM
+	REMAPe.ve2ApacheeDebug -> FROM apachee_baseline
 
 	ARCHIVED TABLE CREATIONS
 	/ REMAP.HistoricRandomizationTimes /
@@ -87,11 +89,12 @@ CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeScoreS AS
 		    	WHEN neurostatus LIKE '%13%' THEN 1
 	    		WHEN neurostatus LIKE '%10%' THEN 4 
 		    ELSE 100
-		    END AS points, 
-	 		0 AS preferred_rank
+		    END AS points
 		FROM
 			COVID_PHI.v2EnrolledPerson EP
-			LEFT JOIN COVID_PHI.GCS_scores G ON (EP.studypatientid = G.studypatientid)
+			LEFT JOIN (
+				SELECT *, CONCAT('0', studypatientid) AS corrected_studypatientid 
+				FROM COVID_PHI.GCS_scores G) AS G ON (EP.studypatientid = G.corrected_studypatientid)
 			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
 		WHERE
 			EP.RandomizedSevere_utc IS NOT NULL
@@ -128,11 +131,33 @@ CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeScoreS AS
 		studypatientid
 ; #SELECT * from COVID_PHI.v2ApacheeScoreS; 
 
+
 ### Create apacheeDebug view ###
 CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeDebug AS
 	WITH apachee_baseline AS (
 		SELECT *, ROW_number() over (PARTITION BY studypatientid, apachee_var, preferred_rank ORDER BY points DESC) AS rn
 		FROM COVID_PHI.v2ApacheeVarS
+	),
+	gcs AS (
+		SELECT 
+			EP.StudyPatientId, EP.RandomizedSevere_utc AS RandomizationTime_utc, 
+			'GCS' as sub_standard_meaning, 
+			G.score, G.input_source,
+			neurostatus, 
+			CASE
+		    	WHEN neurostatus LIKE '%15%' THEN 0
+		    	WHEN neurostatus LIKE '%13%' THEN 1
+	    		WHEN neurostatus LIKE '%10%' THEN 4 
+		    ELSE 100
+		    END AS points
+		FROM
+			COVID_PHI.v2EnrolledPerson EP
+			LEFT JOIN (
+				SELECT *, CONCAT('0', studypatientid) AS corrected_studypatientid 
+				FROM COVID_PHI.GCS_scores G) AS G ON (EP.studypatientid = G.corrected_studypatientid)
+			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
+		WHERE
+			EP.RandomizedSevere_utc IS NOT NULL
 	)
 		SELECT all_ranks.* FROM
 			(SELECT * FROM apachee_baseline WHERE rn = 1) AS all_ranks
@@ -140,7 +165,121 @@ CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeDebug AS
 			) AS min_ranks ON (all_ranks.studypatientid = min_ranks.spi AND all_ranks.apachee_var = min_ranks.av)
 		WHERE
 			preferred_rank = min_rank
+		UNION
+		SELECT 	
+			studypatientid, 'GCS' AS apachee_var, min(score) AS result_val, min(score) AS rounded_result_val, NULL AS event_time_utc,
+			min(if(score IS NOT NULL, 15-score, points)) AS points, if(min(score) IS NULL, 1, 0), 1 AS rn
+		FROM
+			gcs
+		GROUP BY 
+			studypatientid
 ; #SELECT * from COVID_PHI.v2ApacheeDebug; 
+
+
+### Calculate ApacheeScoreS (for Severe Baseline) ###
+CREATE OR REPLACE VIEW REMAPe.ve2ApacheeScoreS AS 
+	WITH apachee_baseline AS (
+		SELECT *, ROW_number() over (PARTITION BY studypatientid, apachee_var, preferred_rank ORDER BY points DESC) AS rn
+		FROM REMAPe.ve2ApacheeVarS
+	),
+	gcs AS (
+		SELECT 
+			EP.StudyPatientId, EP.RandomizedSevere_utc AS RandomizationTime_utc, 
+			'GCS' as sub_standard_meaning, 
+			G.score, G.input_source,
+			neurostatus, 
+			CASE
+		    	WHEN neurostatus LIKE '%15%' THEN 0
+		    	WHEN neurostatus LIKE '%13%' THEN 1
+	    		WHEN neurostatus LIKE '%10%' THEN 4 
+		    ELSE 100
+		    END AS points
+		FROM
+			REMAPe.ve2EnrolledPerson EP
+			LEFT JOIN (
+				SELECT *, CONCAT('0', studypatientid) AS corrected_studypatientid 
+				FROM COVID_PHI.GCS_scores G) AS G ON (EP.studypatientid = G.corrected_studypatientid)
+			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
+		WHERE
+			EP.RandomizedSevere_utc IS NOT NULL
+	)
+	SELECT 
+		studypatientid, SUM(points) AS apachee_APS 
+	FROM
+		(
+		SELECT 
+			studypatientid, SUM(points) AS points 
+		FROM
+			(SELECT * FROM
+				(SELECT * FROM apachee_baseline WHERE rn = 1) AS all_ranks
+				JOIN 
+					(SELECT studypatientid AS spi, apachee_var AS av, min(preferred_rank) AS min_rank 
+					FROM apachee_baseline 
+					WHERE rn = 1 
+					GROUP BY studypatientid, apachee_var
+				) AS min_ranks ON (all_ranks.studypatientid = min_ranks.spi AND all_ranks.apachee_var = min_ranks.av)
+			WHERE
+				preferred_rank = min_rank
+			) AS apachee_baseline_vars_used
+		GROUP BY 
+			studypatientid
+		UNION
+		SELECT 	
+			studypatientid, min(if(score IS NOT NULL, 15-score, points)) AS points
+		FROM
+			gcs
+		GROUP BY 
+			studypatientid
+		) AS inner_score
+	GROUP BY 
+		studypatientid
+; #SELECT * from COVID_PHI.v2ApacheeScoreS; 
+
+
+### Create apacheeDebug view ###
+CREATE OR REPLACE VIEW REMAPe.ve2ApacheeDebug AS
+	WITH apachee_baseline AS (
+		SELECT *, ROW_number() over (PARTITION BY studypatientid, apachee_var, preferred_rank ORDER BY points DESC) AS rn
+		FROM REMAPe.ve2ApacheeVarS
+	), gcs AS (
+		SELECT 
+			EP.StudyPatientId, EP.RandomizedSevere_utc AS RandomizationTime_utc, 
+			'GCS' as sub_standard_meaning, 
+			G.score, G.input_source,
+			neurostatus, 
+			CASE
+		    	WHEN neurostatus LIKE '%15%' THEN 0
+		    	WHEN neurostatus LIKE '%13%' THEN 1
+	    		WHEN neurostatus LIKE '%10%' THEN 4 
+		    ELSE 100
+		    END AS points
+		FROM
+			REMAPe.ve2EnrolledPerson EP
+			LEFT JOIN (
+				SELECT *, CONCAT('0', studypatientid) AS corrected_studypatientid 
+				FROM COVID_PHI.GCS_scores G) AS G ON (EP.studypatientid = G.corrected_studypatientid)
+			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
+		WHERE
+			EP.RandomizedSevere_utc IS NOT NULL
+	)
+		SELECT all_ranks.* FROM
+			(SELECT * FROM apachee_baseline WHERE rn = 1) AS all_ranks
+			JOIN (SELECT studypatientid AS spi, apachee_var AS av, min(preferred_rank) AS min_rank FROM apachee_baseline WHERE rn = 1 GROUP BY studypatientid, apachee_var
+			) AS min_ranks ON (all_ranks.studypatientid = min_ranks.spi AND all_ranks.apachee_var = min_ranks.av)
+		WHERE
+			preferred_rank = min_rank
+		UNION
+		SELECT 	
+			studypatientid, 'GCS' AS apachee_var, min(score) AS result_val, min(score) AS rounded_result_val, NULL AS event_time_utc,
+			min(if(score IS NOT NULL, 15-score, points)) AS points, if(min(score) IS NULL, 1, 0), 1 AS rn
+		FROM
+			gcs
+		GROUP BY 
+			studypatientid
+; #SELECT * from COVID_PHI.v2ApacheeDebug; 
+
+### Create 
+
 
 /* This query was run on 12/5/20 to lock in historic randomization times (up through pt 211). 
 CREATE TABLE REMAP.HistoricRandomizationTimes	

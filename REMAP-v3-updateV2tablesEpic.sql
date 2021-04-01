@@ -15,7 +15,7 @@ NAVIGATION:
 	/ ve2StudyDayS /
 	/ ve2HourlyFiO2MeasurementsM /
 	/ ve2HourlyFiO2MeasurementsS /
-	/ ve2ApacheeVarS / 
+	/ ve2ApacheeVarS / # still need a handful of codes to fill all vars #
 	
 */
 
@@ -524,7 +524,7 @@ CREATE TABLE REMAPe.ve2ApacheeVarS
 			(SELECT StudyPatientID, event_utc AS event_time_utc, result_float AS RESULT_VAL, 
 				ROUND(result_float+.1, 0) as rounded_result_val  
 			FROM REMAPe.ve3Lab 
-			WHERE sub_standard_meaning IN ('White blood count', 'Lymphocyte count')
+			WHERE sub_standard_meaning IN ('White blood count')
 			) AS M
 		JOIN REMAPe.ve3RandomizedSevere R ON M.StudyPatientID = R.StudyPatientID 
 		WHERE M.event_time_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc	
