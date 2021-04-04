@@ -1,6 +1,6 @@
 /*
 REMAP-v3-update_v2TablesEpic.sql
-created by King
+created by AndrewJKing.com | @AndrewsJourney
 
 NAVIGATION: 
 	ALL are REMAPe
@@ -15,7 +15,7 @@ NAVIGATION:
 	/ ve2StudyDayS /
 	/ ve2HourlyFiO2MeasurementsM /
 	/ ve2HourlyFiO2MeasurementsS /
-	/ ve2ApacheeVarS / # still need a handful of codes to fill all vars #
+	/ ve2ApacheeVarS / 
 	
 */
 

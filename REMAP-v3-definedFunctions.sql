@@ -74,6 +74,36 @@ END$$
 delimiter ;
 
 
+# for null dates, convert to default value
+DROP FUNCTION REMAP.dfltH;
+
+delimiter $$
+
+CREATE FUNCTION REMAP.dfltH(date_in DATETIME) RETURNS datetime DETERMINISTIC
+BEGIN
+	DECLARE datetime_out DATETIME;
+	SET datetime_out = IFNULL(date_in, '2030-01-01 00:00:00');
+	RETURN datetime_out;
+END$$
+
+delimiter ;
+
+# for null dates, convert to default value
+DROP FUNCTION REMAP.dfltL;
+
+delimiter $$
+
+CREATE FUNCTION REMAP.dfltL(date_in DATETIME) RETURNS datetime DETERMINISTIC
+BEGIN
+	DECLARE datetime_out DATETIME;
+	SET datetime_out = IFNULL(date_in, '2010-01-01 00:00:00');
+	RETURN datetime_out;
+END$$
+
+delimiter ;
+
+
+
 /* ******************************************************************************************** */
 /* SOURCE: https://stackoverflow.com/questions/37268248/how-to-get-only-digits-from-string-in-mysql */
 

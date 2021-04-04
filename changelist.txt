@@ -1,3 +1,9 @@
+------------------------------changelist 2021/04/03------------------------------
+Created v3IcuAdmitDaysOnSupport and v3IcuDaysOnSupport.
+Created reportingFormsEpic. The three Epic files are now a full mirror of the Cerner counterparts. 
+Added functonality to the RAR and baseline tables created in the reporting forms files. 
+Next steps are Daily, Discharge, and AdverseEvent flags
+
 ------------------------------changelist 2021/03/22------------------------------
 Various patches have been pushed over the last month.
 

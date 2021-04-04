@@ -233,7 +233,7 @@ CREATE OR REPLACE VIEW REMAPe.ve2ApacheeScoreS AS
 		) AS inner_score
 	GROUP BY 
 		studypatientid
-; #SELECT * from COVID_PHI.v2ApacheeScoreS; 
+; #SELECT * from REMAPe.ve2ApacheeScoreS; 
 
 
 ### Create apacheeDebug view ###
@@ -276,9 +276,7 @@ CREATE OR REPLACE VIEW REMAPe.ve2ApacheeDebug AS
 			gcs
 		GROUP BY 
 			studypatientid
-; #SELECT * from COVID_PHI.v2ApacheeDebug; 
-
-### Create 
+; #SELECT * from REMAPe.ve2ApacheeDebug; 
 
 
 /* This query was run on 12/5/20 to lock in historic randomization times (up through pt 211). 

@@ -1,3 +1,13 @@
+/*
+REMAP-v3-reportingForms.sql
+created by AndrewJKing.com | @AndrewsJourney
+
+NAVIGATION: 
+	TABLE BUILD ORDER 
+	REMAP.v3_RAR_condensed -> FROM REMAP.v3Lab, REMAP.v3Participant, REMAP.v3CalculatedStateHypoxiaAtEnroll, REMAP.v3RandomizedModerate, REMAP.v3LocOrder, REMAP.v3RandomizedSevere, REMAP.v3IcuDaysOnSupport
+	REMAP.v3_Form2Baseline_sections5to7 -> FROM REMAP.v3Lab, REMAP.v3Physio, REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere, REMAP.v3CalculatedPEEPjoinFiO2, REMAP.v3CalculatedHourlyFiO2, REMAP.v3CalculatedStateHypoxiaAtEnroll, REMAP.v3OrganSupportInstance, COVID_PHI.v2ApacheeScoreS, REMAP.v3RRTInstance, REMAP.v3CalculatedSOFA
+*/
+
 
 /* v3_RAR_all */ 
 DROP TABLE REMAP.v3_RAR_condensed;
@@ -17,16 +27,29 @@ DROP TABLE REMAP.v3_RAR_condensed;
 			    GROUP BY studypatientid
 			) b ON a.studypatientid = b.studypatientid AND a.event_utc = b.event_utc
 		), StateHypoxia_at_Randomization AS (
-			SELECT StudyPatientId, MAX(StateHypoxia) AS StateHypoxia from REMAP.v3CalculatedStateHypoxiaAtEnroll 
+			SELECT StudyPatientId, MAX(StateHypoxia) AS StateHypoxia 
+			FROM REMAP.v3CalculatedStateHypoxiaAtEnroll 
 			WHERE RandomizationType = 'Moderate' 
 			GROUP BY StudyPatientId
 			UNION
-			SELECT StudyPatientId, MAX(StateHypoxia) AS StateHypoxia from REMAP.v3CalculatedStateHypoxiaAtEnroll 
-			WHERE RandomizationType = 'Severe' AND StudyPatientId NOT IN (SELECT StudyPatientId FROM REMAP.v3RandomizedModerate)
+			SELECT StudyPatientId, MAX(StateHypoxia) AS StateHypoxia 
+			FROM REMAP.v3CalculatedStateHypoxiaAtEnroll 
+			WHERE RandomizationType = 'Severe' 
+				AND StudyPatientId NOT IN (
+					SELECT StudyPatientId FROM REMAP.v3RandomizedModerate
+				)
 			GROUP BY StudyPatientId
 		), last_location AS (
 			SELECT STUDYPATIENTID, REMAP.to_local(MAX(end_utc)) AS EndOfHospitalization_local
 			FROM REMAP.v3LocOrder GROUP BY STUDYPATIENTID
+		), outcomesDay21M AS (
+			SELECT R.StudyPatientID, IFNULL(ROUND((504-I.hours_on_support_M)/24, 0), 22) AS ModerateOutcomeDay21
+			FROM REMAP.v3RandomizedModerate R
+			LEFT JOIN REMAP.v3IcuDaysOnSupport I ON R.studypatientid = I.studypatientid		
+		), outcomesDay21S AS (
+			SELECT R.StudyPatientID, IFNULL(ROUND((504-I.hours_on_support_S)/24, 0), 22) AS SevereOutcomeDay21 
+			FROM REMAP.v3RandomizedSevere R
+			LEFT JOIN REMAP.v3IcuDaysOnSupport I ON R.studypatientid = I.studypatientid		
 		)
 		SELECT 
 			P.StudyPatientID, 
@@ -45,8 +68,8 @@ DROP TABLE REMAP.v3_RAR_condensed;
 			'<e>' AS DDimerCat,
 			if(M.StudyPatientID IS NOT NULL, if(CURRENT_TIMESTAMP > ADDDATE(M.Randomized_utc, INTERVAL 21 DAY), 1, 0), -1) AS Day21Moderate, 
 			if(S.StudyPatientID IS NOT NULL, if(CURRENT_TIMESTAMP > ADDDATE(S.Randomized_utc, INTERVAL 21 DAY), 1, 0), -1) AS Day21Severe,	
-			'<a>' AS ModerateOutcomeDay21, 
-			'<a>' AS SevereOutcomeDay21,	
+			IFNULL(OM.ModerateOutcomeDay21, 997) AS ModerateOutcomeDay21,
+			IFNULL(OS.SevereOutcomeDay21, 997) AS SevereOutcomeDay21,	
 			if(M.StudyPatientID IS NOT NULL, if(CURRENT_TIMESTAMP > ADDDATE(M.Randomized_utc, INTERVAL 90 DAY), 1, 0), -1) AS Day90Moderate,
 			if(S.StudyPatientID IS NOT NULL, if(CURRENT_TIMESTAMP > ADDDATE(S.Randomized_utc, INTERVAL 90 DAY), 1, 0), -1) AS Day90Severe,
 			'<e>' AS OutcomeDay90Moderate, '<e>' AS OutcomeDay90Severe, 
@@ -60,6 +83,8 @@ DROP TABLE REMAP.v3_RAR_condensed;
 			LEFT JOIN StateHypoxia_at_Randomization H ON P.STUDYPATIENTID = H.STUDYPATIENTID
 			LEFT JOIN ddimer_closest D ON P.STUDYPATIENTID = D.STUDYPATIENTID
 			LEFT JOIN last_location L ON P.STUDYPATIENTID = L.STUDYPATIENTID
+			LEFT JOIN outcomesDay21M OM ON P.StudyPatientID = OM.StudyPatientID
+			LEFT JOIN outcomesDay21S OS ON P.StudyPatientID = OS.StudyPatientID
 		ORDER BY StudyPatientId
 ; 
 SELECT * FROM REMAP.v3_RAR_condensed;
@@ -69,7 +94,8 @@ SELECT * FROM REMAP.v3_RAR_condensed;
 DROP TABLE REMAP.v3_Form2Baseline_sections5to7;
 CREATE TABLE REMAP.v3tempBas
 		WITH all_sec6_meas AS (
-			SELECT *, REMAP.to_baseline_standard(sub_standard_meaning) AS baseline_standard FROM REMAP.v3Lab 
+			SELECT *, REMAP.to_baseline_standard(sub_standard_meaning) AS baseline_standard 
+			FROM REMAP.v3Lab 
 			where sub_standard_meaning IN (
 			 	'Creatinine','Cr', 'Creatinine (iStat)', 'Creatinine (whole blood)',
 			 	'Platelet count','Platelet count (DIC screen)','Platelets','Platelet count (PFA)',
@@ -79,7 +105,8 @@ CREATE TABLE REMAP.v3tempBas
 				'Lactic Acid (iStat)', 'Lactate (iStat)','Lactate (arterial respiratory)'
 			)
 			UNION 
-			SELECT *, REMAP.to_baseline_standard(sub_standard_meaning) AS baseline_standard FROM REMAP.v3Physio 
+			SELECT *, REMAP.to_baseline_standard(sub_standard_meaning) AS baseline_standard 
+			FROM REMAP.v3Physio 
 			WHERE sub_standard_meaning IN (
 				'Glasgow Coma Score (total)'
 			) 		
@@ -94,7 +121,8 @@ CREATE TABLE REMAP.v3tempBas
 				'Albumin'
 			)
 			UNION 
-			SELECT *, REMAP.to_baseline_standard(sub_standard_meaning) AS baseline_standard FROM REMAP.v3Physio 
+			SELECT *, REMAP.to_baseline_standard(sub_standard_meaning) AS baseline_standard 
+			FROM REMAP.v3Physio 
 			WHERE sub_standard_meaning IN (
 				'Blood pressure (arterial systolic)', 'Blood pressure (systolic)', 'Heart rate',
 				'Respiratory rate', 'Temperature', 'Temperature (conversion)', 'Temperature (metric)') 		
@@ -154,7 +182,6 @@ CREATE TABLE REMAP.v3tempBas
 				AND a.RandomizationType = b.RandomizationType 
 				AND a.baseline_standard = b.baseline_standard
 				AND a.result_float = b.max_result_float
-		
 	;
 	CREATE TABLE REMAP.v3tempHypoxiaVar
 		WITH PEEPjoinFiO2_preRand AS (
@@ -276,10 +303,41 @@ CREATE TABLE REMAP.v3tempBas
 		)
 		SELECT * FROM corrected_hypoxia_meas
 	;
+	CREATE TABLE REMAP.v3tempBasSupp
+		SELECT R.StudyPatientID, 'Moderate' AS RandomizationType, IFNULL(Bas_CardioSOFA, 0) AS Bas_CardioSOFA, 
+			IF(T.StudyPatientID IS NULL, 'No', 'Yes') AS Bas_RRT, 
+			IF(O.StudyPatientID IS NULL, 'No', 'Yes') AS Bas_ExtracorporealGas, 
+			IF(O.StudyPatientID IS NULL, '', 'X') AS Bas_ECMO, '' AS Bas_ECCO2R
+		FROM REMAP.v3RandomizedModerate R
+		LEFT JOIN REMAP.v3RRTInstance T ON R.StudyPatientID = T.StudyPatientID AND T.event_utc <= R.randomized_utc
+		LEFT JOIN REMAP.v3OrganSupportInstance O ON R.StudyPatientID = O.StudyPatientID AND O.support_type = 'ECMO' AND O.event_utc <= R.randomized_utc
+		LEFT JOIN (
+			SELECT R.StudyPatientID, MAX(score) AS Bas_CardioSOFA
+			FROM REMAP.v3RandomizedModerate R
+			LEFT JOIN REMAP.v3CalculatedSOFA C ON R.StudyPatientID = C.StudyPatientID 
+			WHERE C.STUDY_DAY < 1
+			GROUP BY R.StudyPatientID	
+		) AS SOFA ON R.StudyPatientID = SOFA.StudyPatientID
+		UNION
+		SELECT R.StudyPatientID, 'Severe' AS RandomizationType, Bas_CardioSOFA, 
+			IF(T.StudyPatientID IS NULL, 'No', 'Yes') AS Bas_RRT, 
+			IF(O.StudyPatientID IS NULL, 'No', 'Yes') AS Bas_ExtracorporealGas, 
+			IF(O.StudyPatientID IS NULL, '', 'X') AS Bas_ECMO, '' AS Bas_ECCO2R
+		FROM REMAP.v3RandomizedSevere R
+		LEFT JOIN REMAP.v3RRTInstance T ON R.StudyPatientID = T.StudyPatientID AND T.event_utc <= R.randomized_utc
+		LEFT JOIN REMAP.v3OrganSupportInstance O ON R.StudyPatientID = O.StudyPatientID AND O.support_type = 'ECMO' AND O.event_utc <= R.randomized_utc
+		LEFT JOIN (
+			SELECT R.StudyPatientID, MAX(score) AS Bas_CardioSOFA
+			FROM REMAP.v3RandomizedSevere R
+			LEFT JOIN REMAP.v3CalculatedSOFA C ON R.StudyPatientID = C.StudyPatientID 
+			WHERE C.STUDY_DAY < 1
+			GROUP BY R.StudyPatientID	
+		) AS SOFA ON R.StudyPatientID = SOFA.StudyPatientID	
+	;
 CREATE TABLE REMAP.v3_Form2Baseline_sections5to7
 	SELECT 
 		R.StudyPatientID, 'Moderate' AS aux_RandomizationType, CURRENT_TIMESTAMP as aux_last_update,
-		'<a>' as Bas_APACHEScore,
+		'n/a' as Bas_APACHEScore,
 		H.FiO2_float AS Bas_FIO2,
 		H.PaO2_float AS Bas_PaO2Entered,
 		'<a>' AS Bas_PaO2Units,
@@ -287,11 +345,11 @@ CREATE TABLE REMAP.v3_Form2Baseline_sections5to7
 		H.PF_ratio AS Bas_PaO2FIO2Ratio,
 		H.PEEP_float AS Bas_PEEP,
 		H.StateHypoxia AS Bas_HypoxicState,
-		'<a>' AS Bas_CardioSOFA,
-		'<a>' AS Bas_RRT,
-		'<a>' AS Bas_ExtracorporealGas,
-		'<a>' AS Bas_ECMO,
-		'<a>' AS Bas_ECCO2R,
+		B.Bas_CardioSOFA,
+		B.Bas_RRT,
+		B.Bas_ExtracorporealGas,
+		B.Bas_ECMO,
+		B.Bas_ECCO2R,
 		'<e>' AS Bas_Etomidate,
 		ifnull(M_Cr.result_float, M_Cr_aux.result_float) AS Bas_CreatinineEntered,
 			if(M_Cr.result_float IS NOT NULL, M_Cr.units, M_Cr_aux.units) AS Bas_Creatinine_Units,
@@ -333,8 +391,8 @@ CREATE TABLE REMAP.v3_Form2Baseline_sections5to7
 			M_troponin.units AS Bas_TroponinResult_Units,
 			'<a>' AS Bas_TroponinResult_ngL,
 			M_troponin.prefix AS Bas_TroponinResult_Accuracy,
-			'<a>' AS Bas_TroponinUpperLimit,
-			'<a>' AS Bas_TroponinUpperLimit_Units,
+			M_troponin.NORMAL_HIGH AS Bas_TroponinUpperLimit,
+			M_troponin.units AS Bas_TroponinUpperLimit_Units,
 			'<a>' AS Bas_TroponinUpperLimit_ngl,
 		M_INR.result_float AS Bas_INR_or_PR,
 			M_INR.prefix AS Bas_INR_or_PR_Accuracy,
@@ -354,6 +412,7 @@ CREATE TABLE REMAP.v3_Form2Baseline_sections5to7
 		M_albumin.result_float AS Bas_Albumin
 	FROM REMAP.v3RandomizedModerate R
 	LEFT JOIN REMAP.v3tempHypoxiaVar H ON R.studypatientid = H.studypatientid AND H.randomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBasSupp B ON R.studypatientid = B.studypatientid AND B.randomizationType = 'Moderate'
 	LEFT JOIN COVID_PHI.GCS_scores G ON R.studypatientid = G.studypatientid
 	LEFT JOIN REMAP.v3tempBas M_Cr ON R.studypatientid = M_Cr.studypatientid AND M_Cr.baseline_standard = 'Cr' AND M_Cr.RandomizationType = 'Moderate'
 	LEFT JOIN REMAP.v3tempBas M_Cr_aux ON R.studypatientid = M_Cr_aux.studypatientid AND M_Cr_aux.baseline_standard = 'Cr_aux' AND M_Cr_aux.RandomizationType = 'Moderate'
@@ -381,7 +440,7 @@ CREATE TABLE REMAP.v3_Form2Baseline_sections5to7
 UNION  
 	SELECT 
 		R.StudyPatientID, 'Severe' AS aux_RandomizationType, CURRENT_TIMESTAMP as aux_last_update,
-		'<a>' as Bas_APACHEScore,
+		A.apachee_APS as Bas_APACHEScore,
 		H.FiO2_float AS Bas_FIO2,
 		H.PaO2_float AS Bas_PaO2Entered,
 		'<a>' AS Bas_PaO2Units,
@@ -389,11 +448,11 @@ UNION
 		H.PF_ratio AS Bas_PaO2FIO2Ratio,
 		H.PEEP_float AS Bas_PEEP,
 		H.StateHypoxia AS Bas_HypoxicState,
-		'<a>' AS Bas_CardioSOFA,
-		'<a>' AS Bas_RRT,
-		'<a>' AS Bas_ExtracorporealGas,
-		'<a>' AS Bas_ECMO,
-		'<a>' AS Bas_ECCO2R,
+		B.Bas_CardioSOFA,
+		B.Bas_RRT,
+		B.Bas_ExtracorporealGas,
+		B.Bas_ECMO,
+		B.Bas_ECCO2R,
 		'<e>' AS Bas_Etomidate,
 		ifnull(M_Cr.result_float, M_Cr_aux.result_float) AS Bas_CreatinineEntered,
 			if(M_Cr.result_float IS NOT NULL, M_Cr.units, M_Cr_aux.units) AS Bas_Creatinine_Units,
@@ -435,8 +494,8 @@ UNION
 			M_troponin.units AS Bas_TroponinResult_Units,
 			'<a>' AS Bas_TroponinResult_ngL,
 			M_troponin.prefix AS Bas_TroponinResult_Accuracy,
-			'<a>' AS Bas_TroponinUpperLimit,
-			'<a>' AS Bas_TroponinUpperLimit_Units,
+			M_troponin.NORMAL_HIGH AS Bas_TroponinUpperLimit,
+			M_troponin.units AS Bas_TroponinUpperLimit_Units,
 			'<a>' AS Bas_TroponinUpperLimit_ngl,
 		M_INR.result_float AS Bas_INR_or_PR,
 			M_INR.prefix AS Bas_INR_or_PR_Accuracy,
@@ -455,7 +514,9 @@ UNION
 			'<a>' AS Bas_Bicarbonate_mEqL,
 		M_albumin.result_float AS Bas_Albumin
 	FROM REMAP.v3RandomizedSevere R
+	LEFT JOIN COVID_PHI.v2ApacheeScoreS A ON R.studypatientid = A.studypatientid
 	LEFT JOIN REMAP.v3tempHypoxiaVar H ON R.studypatientid = H.studypatientid AND H.randomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBasSupp B ON R.studypatientid = B.studypatientid AND B.randomizationType = 'Severe'
 	LEFT JOIN COVID_PHI.GCS_scores G ON R.studypatientid = G.studypatientid
 	LEFT JOIN REMAP.v3tempBas M_Cr ON R.studypatientid = M_Cr.studypatientid AND M_Cr.baseline_standard = 'Cr' AND M_Cr.RandomizationType = 'Severe'
 	LEFT JOIN REMAP.v3tempBas M_Cr_aux ON R.studypatientid = M_Cr_aux.studypatientid AND M_Cr_aux.baseline_standard = 'Cr_aux' AND M_Cr_aux.RandomizationType = 'Severe'
@@ -484,6 +545,7 @@ UNION
 	;
 	DROP TABLE REMAP.v3tempBas;
 	DROP TABLE REMAP.v3tempHypoxiaVar;
+	DROP TABLE REMAP.v3tempBasSupp;
 SELECT * FROM REMAP.v3_Form2Baseline_sections5to7;
 
 /* ************************************** future ************************************** */

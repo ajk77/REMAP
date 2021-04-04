@@ -1,4 +1,37 @@
+/*
+REMAP-v3-buildEpic.sql
+created by AndrewJKing.com | @AndrewsJourney
 
+NAVIGATION: 
+	TABLE BUILD ORDER 
+	REMAPe.v3Participant -> FROM REMAPe.ve3ViewCernerEnrolledPerson2
+	REMAPe.v3IdMap -> FROM REMAPe.ve3ViewCernerEnrolledPerson2
+	REMAPe.v3LocOrder -> FROM COVID_PINNACLE.CLARITY_ADT, REMAPe.ve3IdMap, COVID_PINNACLE.CLARITY_DEP, REMAPe.ve3Participant
+	REMAPe.ve3Lab -> FROM COVID_PINNACLE.ORDER_RESULTS, REMAPe.ve3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION
+	REMAPe.tempv3Physio -> FROM COVID_PINNACLE.IP_FLWSHT_MEAS, COVID_PINNACLE.IP_FLWSHT_REC, REMAPe.ve3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION
+	REMAPe.ve3Physio -> FROM REMAPe.tempv3Physio, COVID_SUPPLEMENT.CV_STANDARDIZATION
+	REMAPe.ve3PhysioStr -> FROM REMAPe.tempv3Physio, COVID_SUPPLEMENT.CV_STANDARDIZATION
+	REMAPe.ve3Med -> FROM COVID_PINNACLE.ORDER_MEDINFO, REMAPe.ve3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION, COVID_PINNACLE.MAR_ADMIN_INFO, COVID_PINNACLE.ZC_MED_UNIT
+	REMAPe.ve3OrganSupportInstance -> FROM REMAPe.ve3Med, REMAPe.ve3PhysioStr, REMAPe.ve3Physio, REMAP.NIVexclusion
+	REMAPe.ve3RandomizedSevere -> FROM REMAPe.ve3Participant, REMAPe.ve3LocOrder, REMAPe.ve3OrganSupportInstance, COVID_PINNACLE.CLARITY_DEP (updated from REMAP.HistoricRandomizationTimes)
+	REMAPe.ve3RandomizedModerate -> FROM REMAPe.ve3Participant, REMAPe.ve3RandomizedSevere (updated from REMAP.HistoricRandomizationTimes)
+	REMAPe.ve3StudyDay -> FROM REMAPe.ve3RandomizedModerate, REMAPe.ve3RandomizedSevere, COVID_SUPPLEMENT.STUDY_DAY, REMAPe.ve3LocOrder
+	REMAPe.v3tempDefinedLocOrder -> FROM REMAPe.ve3LocOrder, REMAPe.ve3OrganSupportInstance, COVID_PINNACLE.CLARITY_DEP
+	REMAPe.ve3UnitStay -> FROM REMAPe.v3tempDefinedLocOrder
+	REMAPe.ve3IcuStay -> FROM REMAP.v3UnitStay
+	REMAPe.ve3RRTInstance -> FROM REMAPe.ve3Physio
+	REMAPe.ve3SupplementalOxygenInstance -> FROM REMAPe.ve3PhysioStr , REMAPe.ve3Physio
+	REMAPe.ve3CalculatedHourlyFiO2 -> FROM REMAPe.tempPnearestF, REMAPe.tempPnearestE
+	REMAPe.tempPnearestF -> FROM REMAPe.ve3Lab, REMAPe.ve3CalculatedHourlyFiO2  
+	REMAPe.tempPnearestE -> FROM REMAPe.ve3Lab, REMAPe.ve3Physio
+	REMAPe.ve3CalculatedPFratio -> FROM REMAPe.tempPnearestF, REMAPe.tempPnearestE
+	REMAPe.ve3CalculatedPEEPjoinFiO2 -> FROM REMAPe.ve3Physio, REMAPe.ve3CalculatedHourlyFiO2 
+	REMAPe.ve3CalculatedStateHypoxiaAtEnroll -> FROM REMAPe.ve3CalculatedPFratio, REMAPe.ve3RandomizedModerate, REMAPe.ve3RandomizedSevere, REMAPe.ve3OrganSupportInstance
+	REMAPe.ve3CalculatedSOFA -> FROM REMAPe.ve3Physio, REMAPe.ve3StudyDay, REMAPe.ve3Med,  REMAPe.ve3Physio
+	REMAPe.ve3IcuAdmitDaysOnSupport -> FROM REMAPe.ve3IcuStay, REMAPe.ve3UnitStay, REMAPe.ve3OrganSupportInstance, REMAPe.ve3RandomizedModerate, REMAPe.ve3RandomizedSevere
+	REMAPe.ve3IcuDaysOnSupport -> FROM REMAPe.ve3IcuAdmitDaysOnSupport
+	
+*/
 
 /*
 Dependencies
@@ -259,7 +292,7 @@ CREATE TABLE REMAPe.tempv3Physio
 	DROP TABLE REMAPe.ve3Physio;
 	CREATE TABLE REMAPe.ve3Physio
 		SELECT L.EVENT_ID, M.STUDYPATIENTID, L.event_utc, S.sub_standard_meaning, L.prefix, L.result_float, '' AS units,
-			NORMAL_LOW, NORMAL_HIGH
+			documented_val, NORMAL_LOW, NORMAL_HIGH
 		FROM  
 			(SELECT EVENT_ID, ENCNTR_ID, EVENT_CD, REMAP.to_utc(EVENT_END_DT_TM) AS event_utc, 
 				REMAP.get_prefix(RESULT_VAL) as prefix, REMAP.to_float(RESULT_VAL) AS result_float, 
@@ -950,6 +983,90 @@ DROP TABLE REMAPe.ve3CalculatedSOFA;
 		ORDER BY StudyPatientID, RandomizationType, study_day, score DESC
 ;
 
+
+### Create v3IcuAdmitDaysOnSupport ###
+DROP TABLE REMAPe.ve3IcuAdmitDaysOnSupport; 
+CREATE TABLE REMAPe.ve3IcuAdmitDaysOnSupport
+	WITH ICU_stays AS (
+		SELECT I.*, IF(U.STUDYPATIENTID IS NULL, 0, 1) AS includes_EDUnit, U.beg_utc AS ED_beg_utc 
+		FROM REMAPe.ve3IcuStay I 
+		LEFT JOIN REMAPe.ve3UnitStay U ON I.StudyPatientID = U.StudyPatientID 
+			AND I.loc_start-1 = U.loc_order_unit_end AND U.unit_type = 'ED'
+	), ICU_support AS (
+		SELECT I.StudyPatientID, I.stay_count, O.support_type, 
+			MIN(O.event_utc) AS support_min_utc, MAX(O.event_utc) AS support_max_utc 
+		FROM REMAPe.ve3OrganSupportInstance O
+		JOIN ICU_stays I  
+		ON O.StudyPatientID = I.StudyPatientID 
+			AND O.event_utc BETWEEN ADDDATE(IFNULL(I.ED_beg_utc, I.beg_utc), INTERVAL -24 HOUR) AND ADDDATE(I.end_utc, INTERVAL 24 HOUR)  
+		GROUP BY I.StudyPatientID, I.stay_count, O.support_type
+	), Joined_ICU_support AS (
+		SELECT I.*, 
+			Vaso.support_min_utc AS Vaso_min_utc, Vaso.support_max_utc AS Vaso_max_utc,  
+			HFNC.support_min_utc AS HFNC_min_utc, HFNC.support_max_utc AS HFNC_max_utc, 
+			ECMO.support_min_utc AS ECMO_min_utc, ECMO.support_max_utc AS ECMO_max_utc, 
+			Niv.support_min_utc AS Niv_min_utc, Niv.support_max_utc AS Niv_max_utc, 
+			IMV.support_min_utc AS IMV_min_utc, IMV.support_max_utc AS IMV_max_utc
+		FROM ICU_stays I
+		LEFT JOIN ICU_support Vaso ON I.STUDYPATIENTID = Vaso.StudyPatientID AND I.stay_count = Vaso.stay_count AND Vaso.support_type = 'Vasopressor'
+		LEFT JOIN ICU_support HFNC ON I.STUDYPATIENTID = HFNC.StudyPatientID AND I.stay_count = HFNC.stay_count AND HFNC.support_type = 'HFNC' 
+		LEFT JOIN ICU_support ECMO ON I.STUDYPATIENTID = ECMO.StudyPatientID AND I.stay_count = ECMO.stay_count AND ECMO.support_type = 'ECMO'
+		LEFT JOIN ICU_support Niv ON I.STUDYPATIENTID = Niv.StudyPatientID AND I.stay_count = Niv.stay_count AND Niv.support_type = 'NIV'
+		LEFT JOIN ICU_support IMV ON I.STUDYPATIENTID = IMV.StudyPatientID AND I.stay_count = IMV.stay_count AND IMV.support_type = 'IMV'
+	), Join_ICU_support_plus AS (
+		SELECT *, LEAST(REMAP.dfltH(Vaso_min_utc), REMAP.dfltH(HFNC_min_utc), REMAP.dfltH(ECMO_min_utc), REMAP.dfltH(Niv_min_utc), REMAP.dfltH(IMV_min_utc)) AS earliest_support_utc, 
+			GREATEST(REMAP.dfltL(Vaso_max_utc), REMAP.dfltL(HFNC_max_utc), REMAP.dfltL(ECMO_max_utc), REMAP.dfltL(Niv_max_utc), REMAP.dfltL(IMV_max_utc)) AS lastest_suport_utc
+		FROM Joined_ICU_support
+	), Full_ICU_organ_support AS (			
+	SELECT StudyPatientID, stay_count, 
+		IF(includes_EDUnit = 1, GREATEST(ED_beg_utc, LEAST(beg_utc, earliest_support_utc)), beg_utc) AS beg_utc, end_utc, # adjusting for ED support b/f ICU stay starts
+		IF(earliest_support_utc = '2030-01-01 00:00:00', NULL, earliest_support_utc) AS earliest_support_utc,
+		IF(lastest_suport_utc = '2010-01-01 00:00:00', NULL, lastest_suport_utc) AS latest_suport_utc,
+		includes_organSupport, includes_stepdownUnit, includes_ignoreUnit, includes_EDUnit,
+		Vaso_min_utc, Vaso_max_utc, HFNC_min_utc, HFNC_max_utc, ECMO_min_utc, ECMO_max_utc, Niv_min_utc, Niv_max_utc, IMV_min_utc, IMV_max_utc   
+	FROM Join_ICU_support_plus
+	)
+	SELECT 
+		IF(latest_suport_utc > M.randomized_utc AND earliest_support_utc < ADDDATE(M.randomized_utc, INTERVAL 504 HOUR), 
+			TIMESTAMPDIFF(MINUTE, GREATEST(earliest_support_utc, M.randomized_utc), LEAST(latest_suport_utc, ADDDATE(M.randomized_utc, INTERVAL 504 HOUR))), 
+			NULL) AS minutes_on_support_M, 
+		IF(latest_suport_utc > S.randomized_utc AND earliest_support_utc < ADDDATE(S.randomized_utc, INTERVAL 504 HOUR), 
+			TIMESTAMPDIFF(MINUTE, GREATEST(earliest_support_utc, S.randomized_utc), LEAST(latest_suport_utc, ADDDATE(S.randomized_utc, INTERVAL 504 HOUR))), 
+			NULL) AS minutes_on_support_S, 
+		F.*
+	FROM Full_ICU_organ_support F 
+	LEFT JOIN REMAPe.ve3RandomizedModerate M ON F.StudyPatientID = M.StudyPatientID
+	LEFT JOIN REMAPe.ve3RandomizedSevere S ON F.StudyPatientID = S.StudyPatientID
+	ORDER BY StudyPatientID, stay_count
+; # SELECT * FROM REMAPe.ve3IcuAdmitDaysOnSupport;
+
+DROP TABLE REMAPe.ve3IcuDaysOnSupport; 
+CREATE TABLE REMAPe.ve3IcuDaysOnSupport
+	WITH hrs_M AS (
+		SELECT StudyPatientID, ROUND(SUM(minutes_on_support_M)/60, 0) AS hours_on_support_M 
+		FROM REMAPe.ve3IcuAdmitDaysOnSupport
+		WHERE minutes_on_support_M IS NOT NULL 
+		GROUP BY StudyPatientID
+	), hrs_S AS (
+		SELECT StudyPatientID, ROUND(SUM(minutes_on_support_S)/60, 0) AS hours_on_support_S  
+		FROM REMAPe.ve3IcuAdmitDaysOnSupport
+		WHERE minutes_on_support_S IS NOT NULL 
+		GROUP BY StudyPatientID
+	), summary AS (
+		SELECT StudyPatientID, (MAX(stay_count)-MIN(stay_count)+1) AS number_of_ICU_stays,
+			LEAST(REMAP.dfltH(MIN(beg_utc)), REMAP.dfltH(MIN(earliest_support_utc))) AS first_ICU_admit, # either ICU min or (ED w/ organ support -> ICU admit) min
+			MAX(end_utc) AS last_ICU_discharge,
+			MIN(earliest_support_utc) AS first_support_utc,
+			MAX(latest_suport_utc) AS last_support_utc
+		FROM REMAPe.ve3IcuAdmitDaysOnSupport
+		GROUP BY StudyPatientID
+	)
+	SELECT U.*, hours_on_support_M, hours_on_support_S  
+	FROM summary U 
+	LEFT JOIN hrs_M M ON U.StudyPatientID = M.StudyPatientID
+	LEFT JOIN hrs_S S ON U.StudyPatientID = S.StudyPatientID
+	ORDER BY U.StudyPatientID
+; # SELECT * FROM REMAPe.ve3IcuDaysOnSupport;
 
 			
 /* **************************** */
