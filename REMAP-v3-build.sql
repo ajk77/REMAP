@@ -445,15 +445,21 @@ DROP TABLE REMAP.v3StudyDay;
 		ORDER BY STUDYPATIENTID, STUDY_DAY, RandomizationType
 ;
 
-	
 ### REMAP.v3UnitStay ###
 DROP TABLE REMAP.v3UnitStay;
 	CREATE TABLE REMAP.v3tempDefinedLocOrder 
 		SELECT L1.STUDYPATIENTID, L1.encntr_id, L1.beg_utc, L1.end_utc, L1.loc_order, 
 			L1.LOC_NURSE_UNIT_CD, 
-			if (U.unit_type = 'Stepdown', 'ICU', if(U.unit_type IN ('exclude', 'Procedure Unit', 'PACU'), 'ignore', U.unit_type)) AS unit_type, 
+			CASE 
+				WHEN U.unit_type = 'ICU' AND U.icu_type LIKE 'Pandemic%' THEN 'Pandemic ICU' 
+				WHEN U.unit_type = 'ICU' THEN 'ICU'
+				WHEN U.unit_type = 'Stepdown' THEN 'Stepdown'
+				WHEN U.unit_type IN ('exclude', 'Procedure Unit', 'PACU') THEN 'ignore'
+				ELSE U.unit_type
+			END AS unit_type,
 			CV.DISPLAY, L2.includes_organSupport, 
-			if (U.unit_type = 'Stepdown', 1, 0) AS includes_stepdownUnit
+			if (U.unit_type = 'Stepdown', 1, 0) AS includes_stepdownUnit,
+			if (U.unit_type = 'ICU' AND U.icu_type LIKE 'Pandemic%', 1, 0) AS includes_pandemicICU
 		FROM REMAP.v3LocOrder L1
 		LEFT JOIN (
 			SELECT DISTINCT L.studypatientid, L.loc_order, 1 AS includes_organSupport 
@@ -505,7 +511,7 @@ DROP TABLE REMAP.v3UnitStay;
 			)
 			SELECT DISTINCT E.STUDYPATIENTID, Ds.unit_type, E.loc_order_unit_start, E.loc_order_unit_end, Ds.beg_utc, De.end_utc, 
 				ifnull(I.includes_organSupport, 0) AS includes_organSupport, 0 AS includes_stepdownUnit, 
-				if(Ds.unit_type IN ('ignore'), 1, 0) AS includes_ignoreUnit 
+				if(Ds.unit_type IN ('ignore'), 1, 0) AS includes_ignoreUnit, 0 AS includes_pandemicICU 
 			FROM unitEndpointsAll E
 			JOIN REMAP.v3tempDefinedLocOrder Ds ON E.studypatientid = Ds.studypatientid AND E.loc_order_unit_start = Ds.loc_order
 			JOIN REMAP.v3tempDefinedLocOrder De ON E.studypatientid = De.studypatientid AND E.loc_order_unit_end = De.loc_order
@@ -517,6 +523,11 @@ DROP TABLE REMAP.v3UnitStay;
 	JOIN (SELECT * from REMAP.v3tempDefinedLocOrder WHERE includes_stepdownUnit = 1
 	) AS L ON U.studypatientid = L.studypatientid AND L.loc_order BETWEEN U.loc_order_unit_start AND U.loc_order_unit_end
 	SET U.includes_stepdownUnit = L.includes_stepdownUnit;
+	## add pandemicUnit flag ##	
+	UPDATE REMAP.v3UnitStay U
+	JOIN (SELECT * from REMAP.v3tempDefinedLocOrder WHERE includes_pandemicICU = 1
+	) AS L ON U.studypatientid = L.studypatientid AND L.loc_order BETWEEN U.loc_order_unit_start AND U.loc_order_unit_end
+	SET U.includes_pandemicICU = L.includes_pandemicICU;
 	## drop temp table ##
 	DROP TABLE REMAP.v3tempDefinedLocOrder;
 
@@ -528,13 +539,13 @@ CREATE TABLE REMAP.v3IcuStay
 		FROM REMAP.v3UnitStay U1
 		JOIN REMAP.v3UnitStay U2
 		ON U1.studypatientid = U2.studypatientid AND U1.beg_utc BETWEEN U2.end_utc AND ADDDATE(U2.end_utc, INTERVAL 12 HOUR)
-		WHERE U1.unit_type IN ('ICU') AND U2.unit_type IN ('ICU')
+		WHERE U1.unit_type IN ('ICU') AND ( (U2.unit_type IN ('ICU')) OR (U2.unit_type IN ('Stepdown', 'Pandemic ICU') AND U2.includes_organSupport = 1) )
 		), stay_after AS ( # Unit stays of type ICU that have another unit stay of type ICU within the 12 hours after
 		SELECT U1.*, U2.loc_order_unit_start AS linked_end
 		FROM REMAP.v3UnitStay U1
 		JOIN REMAP.v3UnitStay U2
 		ON U1.studypatientid = U2.studypatientid AND U1.end_utc BETWEEN ADDDATE(U2.beg_utc, INTERVAL -12 HOUR) AND U2.beg_utc
-		WHERE U1.unit_type IN ('ICU') AND U2.unit_type IN ('ICU')	
+		WHERE U1.unit_type IN ('ICU') AND ( (U2.unit_type IN ('ICU')) OR (U2.unit_type IN ('Stepdown', 'Pandemic ICU') AND U2.includes_organSupport = 1) )	
 		), stay_joint AS (  # joining before and after stays with each stay
 		SELECT U1.*, SB.linked_start, SA.linked_end 
 		FROM REMAP.v3UnitStay U1
@@ -559,6 +570,7 @@ CREATE TABLE REMAP.v3IcuStay
 			SR.beg_utc, ER.end_utc, GREATEST(SR.includes_organSupport, ER.includes_organSupport) AS includes_organSupport,
 			GREATEST(SR.includes_stepdownUnit, ER.includes_stepdownUnit) AS includes_stepdownUnit,
 			GREATEST(SR.includes_ignoreUnit, ER.includes_ignoreUnit) AS includes_ignoreUnit,
+			GREATEST(SR.includes_pandemicICU, ER.includes_pandemicICU) AS includes_pandemicICU,
 			TIMESTAMPDIFF(SECOND, SR.beg_utc, ER.end_utc) AS time_diff 
 		FROM start_rows SR 
 		JOIN end_rows ER 
@@ -568,11 +580,11 @@ CREATE TABLE REMAP.v3IcuStay
 		SELECT studypatientid, loc_order_unit_start, MIN(time_diff) AS min_time_diff
 		FROM joined_rows 
 		GROUP BY studypatientid, loc_order_unit_start
-		) # union the closest neighboring types with the independent types 	
+		), icu_base_stays AS ( # union the closest neighboring types with the independent types 	
 			SELECT 
 				REMAP.to_unique_orderd_num(J.beg_utc, J.studypatientid) AS upk,
 				J.StudyPatientId, 0 AS stay_count, J.beg_utc, J.end_utc, J.includes_organSupport, J.includes_stepdownUnit, J.includes_ignoreUnit,
-				J.loc_order_unit_start AS loc_start, J.loc_order_unit_end AS loc_end 
+				J.includes_pandemicICU, J.loc_order_unit_start AS loc_start, J.loc_order_unit_end AS loc_end 
 			FROM joined_rows J
 			JOIN min_joined M
 			ON J.studypatientid = M.studypatientid AND J.loc_order_unit_start = M.loc_order_unit_start
@@ -581,8 +593,30 @@ CREATE TABLE REMAP.v3IcuStay
 			SELECT 
 				REMAP.to_unique_orderd_num(beg_utc, studypatientid) AS upk,
 				StudyPatientId, 0 AS stay_count, beg_utc, end_utc, includes_organSupport, includes_stepdownUnit, includes_ignoreUnit,
-				loc_order_unit_start AS loc_start, loc_order_unit_end AS loc_end
+				includes_pandemicICU, loc_order_unit_start AS loc_start, loc_order_unit_end AS loc_end
 			FROM independent_rows
+		), non_icu_support_stays AS ( # remaining parts are for including standalone Stepdown and Pandemic ICU with organ support as an IcuStay
+			SELECT *
+			FROM REMAP.v3UnitStay
+			WHERE includes_organSupport = 1 AND unit_type IN ('Stepdown', 'Pandemic ICU')
+		), already_included_non_icu_stays AS (
+			SELECT N.*
+			FROM non_icu_support_stays N
+			JOIN icu_base_stays I ON N.studypatientid = I.studypatientid 
+				AND N.loc_order_unit_start >= I.loc_start AND N.loc_order_unit_end <= I.loc_end
+		), other_independent_rows AS (
+			SELECT N.* 
+			FROM non_icu_support_stays N
+			WHERE NOT EXISTS (SELECT * FROM already_included_non_icu_stays)
+		)	
+		SELECT * 
+		FROM icu_base_stays
+		UNION 
+		SELECT 
+			REMAP.to_unique_orderd_num(O.beg_utc, O.studypatientid) AS upk,
+			O.StudyPatientId, 0 AS stay_count, O.beg_utc, O.end_utc, O.includes_organSupport, O.includes_stepdownUnit, O.includes_ignoreUnit,
+			O.includes_pandemicICU, O.loc_order_unit_start AS loc_start, O.loc_order_unit_end AS loc_end 
+		FROM other_independent_rows O
 		ORDER BY studypatientid, beg_utc
 		;
 	## adjust upks to be sequential and start at 0 ##
@@ -750,7 +784,7 @@ DROP TABLE REMAP.v3CalculatedHourlyFiO2;
 DROP TABLE REMAP.v3CalculatedPFratio;
 	CREATE TABLE REMAP.tempPnearestF
 		WITH PjoinF AS (
-			SELECT P.STUDYPATIENTID, P.result_float as PaO2_float, P.event_utc AS PaO2_utc, 
+			SELECT P.STUDYPATIENTID, P.result_float as PaO2_float, P.units AS PaO2_units, P.event_utc AS PaO2_utc, 
 				F.result_float AS FiO2_float,
 				ifnull(F.event_utc, ADDDATE(P.event_utc, INTERVAL -1439 MINUTE)) AS FiO2_utc,  # handles cases where PaO2 is reported without an FIO2
 				TIMESTAMPDIFF(MINUTE, ifnull(F.event_utc, ADDDATE(P.event_utc, INTERVAL -1439 MINUTE)), P.event_utc) AS delta_minutes
@@ -780,7 +814,7 @@ DROP TABLE REMAP.v3CalculatedPFratio;
 	;	
 	CREATE TABLE REMAP.v3CalculatedPFratio
 		SELECT DISTINCT PF.STUDYPATIENTID, ROUND(PF.PaO2_float/PF.FiO2_float*100,0) AS PF_ratio, 
-			PF.PaO2_float, PF.PaO2_utc, PF.FiO2_float, PF.FiO2_utc, PE.PEEP_float, PE.PEEP_utc 
+			PF.PaO2_float, PF.PaO2_units, PF.PaO2_utc, PF.FiO2_float, PF.FiO2_utc, PE.PEEP_float, PE.PEEP_utc 
 		FROM REMAP.tempPnearestF PF 
 		LEFT JOIN REMAP.tempPnearestE PE ON PF.STUDYPATIENTID = PE.STUDYPATIENTID AND PF.PaO2_utc = PE.PaO2_utc
  	;
@@ -846,7 +880,7 @@ DROP TABLE REMAP.v3CalculatedStateHypoxiaAtEnroll;
 			SELECT * FROM allJoined
 			UNION
 			SELECT 
-				StudyPatientID, NULL AS PF_ratio, NULL AS PaO2_float, NULL AS PaO2_utc,
+				StudyPatientID, NULL AS PF_ratio, NULL AS PaO2_float, NULL AS PaO2_units, NULL AS PaO2_utc,
 				NULL AS FiO2_float, NULL AS FiO2_utc, NULL AS PEEP_float, NULL AS PEEP_utc,  
 				'Severe' AS RandomizationType, onInvasiveVent
 			FROM IMVwithoutPaO2
@@ -858,7 +892,7 @@ DROP TABLE REMAP.v3CalculatedStateHypoxiaAtEnroll;
 				WHEN A.OnInvasiveVent = 1 THEN 2
 				ELSE 1
 			END AS StateHypoxia,
-			A.onInvasiveVent, A.PaO2_float, A.PaO2_utc, A.PEEP_float, A.PEEP_utc, A.PF_ratio, A.FiO2_float, A.FiO2_utc 
+			A.onInvasiveVent, A.PaO2_float, A.PaO2_units, A.PaO2_utc, A.PEEP_float, A.PEEP_utc, A.PF_ratio, A.FiO2_float, A.FiO2_utc 
 		FROM allJoinedPlus A
 ;
 
@@ -934,11 +968,23 @@ DROP TABLE REMAP.v3CalculatedSOFA;
 ### Create v3IcuAdmitDaysOnSupport ###
 DROP TABLE REMAP.v3IcuAdmitDaysOnSupport; 
 CREATE TABLE REMAP.v3IcuAdmitDaysOnSupport
-	WITH ICU_stays AS (
+	WITH ICU_stays_with_ED AS (  # include ED support as start of ICU stay if transition FROM ED to an ICUStay (includes ICU, Pandemic ICU and Stepdown. The latter two only when they include support)
 		SELECT I.*, IF(U.STUDYPATIENTID IS NULL, 0, 1) AS includes_EDUnit, U.beg_utc AS ED_beg_utc 
 		FROM REMAP.v3IcuStay I 
 		LEFT JOIN REMAP.v3UnitStay U ON I.StudyPatientID = U.StudyPatientID 
 			AND I.loc_start-1 = U.loc_order_unit_end AND U.unit_type = 'ED'
+	), ICU_stays_updated_beg_utc AS ( # adjust for stays that start in a Pandemic ICU or Stepdown
+		SELECT I.STUDYPATIENTID, I.stay_count, MIN(O.event_utc) AS beg_utc 
+		FROM ICU_stays_with_ED I
+		JOIN REMAP.v3UnitStay U ON I.studypatientid = U.studypatientid AND I.loc_start = U.loc_order_unit_start AND U.unit_type IN ('Pandemic ICU', 'Stepdown')
+		JOIN REMAP.v3OrganSupportInstance O ON U.studypatientid = O.studypatientid AND O.event_utc BETWEEN U.beg_utc AND U.end_utc
+		GROUP BY I.STUDYPATIENTID, I.stay_count
+	), ICU_stays AS (  # adjusts beg_utc when start of stay was a Pandemic ICU or Stepdown
+		SELECT I1.upk, I1.StudyPatientID, I1.stay_count, IFNULL(I2.beg_utc, I1.beg_utc) AS beg_utc, I1.end_utc, 
+			I1.includes_organSupport, I1.includes_stepdownUnit, I1.includes_ignoreUnit, I1.includes_pandemicICU, I1.loc_start, I1.loc_end, 
+			I1.includes_EDUnit, I1.ED_beg_utc
+		FROM ICU_stays_with_ED I1
+		LEFT JOIN ICU_stays_updated_beg_utc I2 ON I1.studypatientid = I2.studypatientid AND I1.stay_count = I2.stay_count
 	), ICU_support AS (
 		SELECT I.StudyPatientID, I.stay_count, O.support_type, 
 			MIN(O.event_utc) AS support_min_utc, MAX(O.event_utc) AS support_max_utc 
@@ -966,7 +1012,7 @@ CREATE TABLE REMAP.v3IcuAdmitDaysOnSupport
 		FROM Joined_ICU_support
 	), Full_ICU_organ_support AS (			
 	SELECT StudyPatientID, stay_count, 
-		IF(includes_EDUnit = 1, GREATEST(ED_beg_utc, LEAST(beg_utc, earliest_support_utc)), beg_utc) AS beg_utc, end_utc, # adjusting for ED support b/f ICU stay starts
+		CAST(IF(includes_EDUnit = 1, GREATEST(ED_beg_utc, LEAST(beg_utc, earliest_support_utc)), beg_utc) AS DATETIME) AS beg_utc, end_utc, # adjusting for ED support b/f ICU stay starts
 		IF(earliest_support_utc = '2030-01-01 00:00:00', NULL, earliest_support_utc) AS earliest_support_utc,
 		IF(lastest_suport_utc = '2010-01-01 00:00:00', NULL, lastest_suport_utc) AS latest_suport_utc,
 		includes_organSupport, includes_stepdownUnit, includes_ignoreUnit, includes_EDUnit,
