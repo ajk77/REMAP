@@ -547,259 +547,144 @@ UNION
 SELECT * FROM REMAP.v3_Form2Baseline_sections5to7;
 
 ### v3_Form4Daily_all ### 
-/*
-WITH study_days AS (
-	SELECT SD.* 
-	FROM REMAP.v3StudyDay SD
-	JOIN REMAP.v3IcuStay I 
-	ON SD.StudyPatientID = I.STUDYPATIENTID 
-		AND SD.day_start_utc <= I.end_utc 
-		AND SD.day_end_utc >= I.beg_utc
-), pt_loc_pre AS ( 
-	SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT U.unit_type) AS pt_loc_str
+DROP TABLE REMAP.v3_Form4Daily_all;
+CREATE TABLE REMAP.v3_Form4Daily_all
+	WITH study_days AS (
+		SELECT SD.* 
+		FROM REMAP.v3StudyDay SD
+		JOIN REMAP.v3IcuStay I 
+		ON SD.StudyPatientID = I.STUDYPATIENTID 
+			AND SD.day_start_utc <= I.end_utc 
+			AND SD.day_end_utc >= I.beg_utc
+	), pt_loc_pre AS ( 
+		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT U.unit_type) AS pt_loc_str
+		FROM study_days SD
+		JOIN REMAP.v3UnitStay U
+		ON SD.StudypatientID = U.STUDYPATIENTID
+			AND SD.day_start_utc <= U.end_utc 
+			AND SD.day_end_utc >= U.beg_utc
+		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
+	), pt_loc AS (
+		SELECT StudyPatientID, STUDY_DAY, RandomizationType, pt_loc_str AS aux_pt_loc_str,
+			IF(pt_loc_str LIKE 'ICU%' OR pt_loc_str LIKE '%,ICU%', 'Physical', 'Repurposed') AS Physical_ICU
+	 	FROM pt_loc_pre
+	), support_pre AS (
+		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT O.support_type) AS support_str
+		FROM study_days SD
+		LEFT JOIN REMAP.v3OrganSupportInstance O
+		ON SD.StudyPatientID = O.studypatientid
+			AND O.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
+	), binary_support AS (
+		SELECT StudyPatientID, STUDY_DAY, RandomizationType, support_str AS aux_support_str,
+			IF(support_str LIKE '%HFNC%', 'Yes', 'No') AS on_HFNC,
+			IF(support_str LIKE '%NIV%', 'Yes', 'No') AS on_NIV,
+			IF(support_str LIKE '%ECMO%', 'Yes', 'No') AS on_ECMO
+	 	FROM support_pre
+	), rrt_support AS (
+		SELECT DISTINCT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, if(R.studypatientid IS NOT NULL, 'Yes', 'No') AS on_RRT
+		FROM study_days SD
+		LEFT JOIN REMAP.v3RRTInstance R
+		ON SD.studypatientid = R.studypatientid
+			AND R.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), sofa AS (	
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, IFNULL(MAX(C.score), 0) AS CardioSOFA
+		FROM study_days SD
+		LEFT JOIN REMAP.v3CalculatedSOFA C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND SD.study_day = C.study_day
+		GROUP BY SD.StudyPatientID, SD.Study_day, SD.RandomizationType
+	), IMV AS (
+		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, 
+			IFNULL(LEAST(timestampdiff(HOUR, MIN(O.event_utc),  MAX(O.event_utc)), 24), 0) as IMV_hours
+		FROM study_days SD
+		LEFT JOIN REMAP.v3OrganSupportInstance O
+		ON SD.StudyPatientID = O.studypatientid
+			AND O.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+		WHERE O.support_type = 'IMV'
+		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
+	), airway_doc_pre AS (
+		SELECT P.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType,  if(P.documented_text LIKE '%Tracheostomy%', 'Tracheostomy', 'Endotracheal Tube') AS pt_airway
+		FROM REMAP.v3PhysioStr P
+		JOIN study_days SD ON SD.StudyPatientID = P.STUDYPATIENTID AND P.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+		WHERE P.sub_standard_meaning = 'Airway' OR P.result_str = 'IV device' 
+	), airway_doc AS (
+		SELECT StudyPatientID, Study_day, RandomizationType, GROUP_CONCAT(DISTINCT pt_airway) AS airway_str
+		FROM airway_doc_pre SD 
+		GROUP BY StudyPatientID, Study_day, RandomizationType
+	), oxygenation_pre AS ( # find lowest pf ratio 
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, PF_ratio, PaO2_float, FiO2_float, PEEP_float, PaO2_utc
+		FROM study_days SD
+		LEFT JOIN REMAP.v3CalculatedPFratio C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND C.PaO2_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), min_pf AS (
+		SELECT StudyPatientID, Study_day, randomizationType, MIN(PF_ratio) AS min_pf
+		FROM oxygenation_pre
+		GROUP BY StudyPatientID, Study_day, RandomizationType
+	), oxygenation AS (
+		SELECT O.StudyPatientID, O.Study_day, O.RandomizationType, O.PF_ratio, O.PaO2_float, O.FiO2_float, 
+			MAX(O.PEEP_float) AS PEEP_float, O.PaO2_utc
+		FROM oxygenation_pre O
+		JOIN min_pf M ON O.studypatientid = M.studypatientid AND O.study_day = M.study_day AND O.randomizationType = M.randomizationType
+		WHERE O.pf_ratio = M.min_pf
+		GROUP BY O.StudyPatientID, O.Study_day, O.RandomizationType, O.PF_ratio, O.PaO2_float, O.FiO2_float, O.PaO2_utc 
+	), FiO2_pre AS ( # find highest fio2
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, result_float AS FiO2_float
+		FROM study_days SD
+		LEFT JOIN v3CalculatedHourlyFiO2 C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND C.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), max_fio2 AS (
+		SELECT StudyPatientID, Study_day, randomizationType, MAX(FiO2_float) AS max_fio2
+		FROM FiO2_pre
+		GROUP BY StudyPatientID, Study_day, RandomizationType
+	), peep_pre AS ( # find peep corresponding to fio2
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, PEEP_float, FiO2_float
+		FROM study_days SD
+		LEFT JOIN REMAP.v3CalculatedPEEPjoinFiO2 C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND C.FiO2_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), fio2_peep AS (
+		SELECT F.StudyPatientID, F.Study_day, F.RandomizationType, F.max_fio2 AS FiO2_float, MAX(P.PEEP_float) AS PEEP_float
+		FROM max_fio2 F
+		LEFT JOIN peep_pre P ON P.StudyPatientID = F.studypatientid AND P.study_day = F.study_day AND P.randomizationType = F.randomizationType
+		WHERE P.fio2_float = F.max_fio2 OR P.fio2_float IS NULL 
+		GROUP BY F.StudyPatientID, F.Study_day, F.RandomizationType, F.max_fio2 
+	)
+	SELECT DISTINCT 
+		SD.StudyPatientID,
+		SD.RandomizationType,
+		SD.study_day,
+		SD.day_date_local,
+		'Yes'AS pt_in_ICU,
+		P.Physical_ICU,
+		P.aux_pt_loc_str,
+		A.airway_str,
+		B.on_HFNC,
+		B.on_NIV,
+		IFNULL(I.IMV_hours, 0) AS IMV_hours,
+		IFNULL(O.FiO2_float, E.FiO2_float) AS FiO2,
+		O.PaO2_float AS PaO2,
+		IFNULL(O.PEEP_float, E.FiO2_float) AS PEEP, 
+		S.CardioSOFA,
+		R.on_RRT,
+		B.on_ECMO,
+		if(B.on_ECMO IS NOT NULL, 'ECMO', NULL) AS ECMO_type
 	FROM study_days SD
-	JOIN REMAP.v3UnitStay U
-	ON SD.StudypatientID = U.STUDYPATIENTID
-		AND SD.day_start_utc <= U.end_utc 
-		AND SD.day_end_utc >= U.beg_utc
-	GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
-), pt_loc AS (
-	SELECT StudyPatientID, STUDY_DAY, RandomizationType, pt_loc_str AS aux_pt_loc_str,
-		IF(pt_loc_str LIKE 'ICU%' OR pt_loc_str LIKE '%,ICU%', 'Physical', 'Repurposed') AS Physical_ICU
- 	FROM pt_loc_pre
-), support_pre AS (
-	SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT O.support_type) AS support_str
-	FROM study_days SD
-	LEFT JOIN REMAP.v3OrganSupportInstance O
-	ON SD.StudyPatientID = O.studypatientid
-		AND O.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
-	GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
-), binary_support AS (
-	SELECT StudyPatientID, STUDY_DAY, RandomizationType, support_str AS aux_support_str,
-		IF(support_str LIKE '%HFNC%', 'Yes', 'No') AS on_HFNC,
-		IF(support_str LIKE '%NIV%', 'Yes', 'No') AS on_NIV,
-		IF(support_str LIKE '%ECMO%', 'Yes', 'No') AS on_ECMO
- 	FROM support_pre
-), rrt_support AS (
-	SELECT DISTINCT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, if(R.studypatientid IS NOT NULL, 'Yes', 'No') AS on_RRT
-	FROM study_days SD
-	LEFT JOIN REMAP.v3RRTInstance R
-	ON SD.studypatientid = R.studypatientid
-		AND R.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
-)	
-	SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, IFNULL(MAX(C.score), 0) AS CardioSOFA
-	FROM study_days SD
-	LEFT JOIN REMAP.v3CalculatedSOFA C 
-	ON SD.StudyPatientID = C.StudyPatientID 
-		AND SD.study_day = C.study_day
-	GROUP BY SD.StudyPatientID, SD.Study_day, SD.RandomizationType
-
+	LEFT JOIN pt_loc P ON SD.StudyPatientID = P.StudyPatientID AND SD.STUDY_DAY = P.STUDY_DAY AND SD.RandomizationType = P.RandomizationType
+	LEFT JOIN binary_support B ON SD.StudyPatientID = B.StudyPatientID AND SD.STUDY_DAY = B.STUDY_DAY AND SD.RandomizationType = B.RandomizationType
+	LEFT JOIN rrt_support R ON SD.StudyPatientID = R.StudyPatientID AND SD.STUDY_DAY = R.STUDY_DAY AND SD.RandomizationType = R.RandomizationType
+	LEFT JOIN sofa S ON SD.StudyPatientID = S.StudyPatientID AND SD.STUDY_DAY = S.STUDY_DAY AND SD.RandomizationType = S.RandomizationType
+	LEFT JOIN IMV I ON SD.StudyPatientID = I.StudyPatientID AND SD.STUDY_DAY = I.STUDY_DAY AND SD.RandomizationType = I.RandomizationType
+	LEFT JOIN airway_doc A ON SD.StudyPatientID = A.StudyPatientID AND SD.STUDY_DAY = A.STUDY_DAY AND SD.RandomizationType = A.RandomizationType
+	LEFT JOIN oxygenation O ON SD.StudyPatientID = O.StudyPatientID AND SD.STUDY_DAY = O.STUDY_DAY AND SD.RandomizationType = O.RandomizationType
+	LEFT JOIN fio2_peep E ON SD.StudyPatientID = E.StudyPatientID AND SD.STUDY_DAY = E.STUDY_DAY AND SD.RandomizationType = E.RandomizationType
+	ORDER BY SD.StudyPatientID, SD.RandomizationType, SD.Study_Day
 ; 
+SELECT * FROM REMAP.v3_Form4Daily_all;
 
-SELECT * FROM REMAP.v3OrganSupportInstance;
 
-
-SELECT 
-			studypatientid, RandomizationType, study_day, day_date_local, 
-			'YES' AS pt_in_icu, 'Physical ICU' AS pt_location,
-			unit_type,
-			airway,
-			HFNC,
-			OS_HFNC,
-			NIV,
-			IV,
-			FiO2_value, PaO2_value, PEEP_value,
-			SOFA,
-			RRT,
-			ECMO,
-			'<not implemented>' AS corticosteroid_administration
-	FROM
-		(
-		SELECT 
-			SD.studypatientid, 'Moderate' AS RandomizationType, SD.study_day, SD.day_date_local, 
-			'YES' as pt_in_icu, 'Physical ICU' AS pt_location,
-			if (LOC.unit_type = 'ICU,Stepdown' OR LOC.unit_type = 'Stepdown,ICU', 'Both', LOC.unit_type) AS unit_type,
-			if(airway IS NOT NULL, airway, 'Maintaining own') AS airway,
-			if (timestampdiff(MINUTE, hfnc_min_dt_utc,  hfnc_max_dt_utc) >=60, 'YES', 'NO') as HFNC,
-			if (timestampdiff(MINUTE, os_hfnc_min_dt_utc,  os_hfnc_max_dt_utc) >=60, 'YES', 'NO') as OS_HFNC,			
-			if (timestampdiff(MINUTE, niv_min_dt_utc,  niv_max_dt_utc) >=60, 'YES', 'NO') as NIV,
-			timestampdiff(HOUR, iv_min_dt_utc,  iv_max_dt_utc) as IV,
-			if (HV.PaO2_value IS NOT NULL, HV.FiO2_value, if(HV2.FiO2_value IS NOT NULL, HV2.FiO2_value, HV3.FiO2_value)) AS FiO2_value,
-			HV.PaO2_value AS PaO2_value,
-			if (HV.PaO2_value IS NOT NULL, HV.PEEP_value, HV2.PEEP_value) AS PEEP_value,
-			if(sofa_score IS NOT NULL, if(sofa_score = 5, '4+', sofa_score), 0) AS SOFA,
-			if (rrt_min_dt_utc IS NOT NULL, 'YES', 'NO') AS RRT,
-			if (ecmo_min_dt_utc IS NOT NULL, 'ECMO', 'NO') AS ECMO		
-		FROM
-			COVID_PHI.v2StudyDayM SD
-			JOIN (select studypatientid, ICU_admit_dt_utc, ICU_discharge_dt_utc FROM COVID_PHI.v2IcuAdmitDaysOnSupportM) AS DOS ON SD.studypatientid = DOS.studypatientid
-			LEFT JOIN
-				(
-				SELECT 
-					SD.studypatientid, SD.study_day, GROUP_CONCAT(DISTINCT unit_type) AS unit_type #SD.day_start_utc, SD.day_end_utc, EP.encntr_id, ELH.LOC_NURSE_UNIT_CD, UDA.unit_type 
-				FROM 
-					COVID_PHI.v2StudyDayM SD
-					JOIN COVID_PHI.v2EnrolledPerson EP ON (SD.studypatientid = EP.studypatientid)
-					JOIN CT_DATA.ENCNTR_LOC_HIST ELH ON (EP.ENCNTR_ID = ELH.ENCNTR_ID)
-					JOIN (SELECT unit_code, unit_type 
-							FROM COVID_SUPPLEMENT.UNIT_DESCRIPTION_ARCHIVE 
-							WHERE unit_type IN ('ICU', 'Stepdown')
-						) AS UDA ON (ELH.LOC_NURSE_UNIT_CD = UDA.unit_code)
-				WHERE
-					ELH.BEG_EFFECTIVE_DT_TM <= SD.day_end_utc #	location START must be before day end
-						AND
-					ELH.END_EFFECTIVE_DT_TM >= SD.day_start_utc #	location END must be after day start
-				GROUP BY
-					studypatientid, study_day
-				) AS LOC ON (SD.studypatientid = LOC.StudyPatientId AND SD.study_day = LOC.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day, GROUP_CONCAT(distinct airway) AS airway
-				FROM
-					(
-					SELECT 
-						studyPatientId, study_day, vent_dt_utc,
-						CASE
-							WHEN source_query = 'Airway' THEN 'Endotracheal Tube' # because these rows only correspond to ET 
-							WHEN source_query = 'Device' THEN 
-									if (documented_text LIKE '%Ventilator%' AND documented_text LIKE '%Tracheostomy%', 'Tracheostomy', 'Endotracheal Tube')
-							WHEN source_query = 'Tube' THEN 
-								if (documented_text LIKE '%Tracheostomy%', 'Tracheostomy', 'Endotracheal Tube')  # These rows correspond to 'ET tube placement' and 'tube status'
-							ELSE 'N/A'
-						END AS airway
-					FROM			
-						COVID_PHI.v2IVInstancesM
-					WHERE 
-						source_query IN ('Airway', 'Tube', 'Device')
-					) AS airway_inner
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS airway ON (SD.studypatientid = airway.StudyPatientId AND SD.study_day = airway.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day,
-					MAX(hfnc_dt_utc) AS hfnc_max_dt_utc,
-					MIN(hfnc_dt_utc) AS hfnc_min_dt_utc
-				FROM			
-					COVID_PHI.v2RelaxedHFNCInstancesM 
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS hfnc ON (SD.studypatientid = hfnc.StudyPatientId AND SD.study_day = hfnc.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day,
-					MAX(hfnc_dt_utc) AS os_hfnc_max_dt_utc,
-					MIN(hfnc_dt_utc) AS os_hfnc_min_dt_utc
-				FROM			
-					COVID_PHI.v2HFNCInstancesM 
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS os_hfnc ON (SD.studypatientid = os_hfnc.StudyPatientId AND SD.study_day = os_hfnc.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day,
-					MAX(mechSupport_dt_utc) AS niv_max_dt_utc,
-					MIN(mechSupport_dt_utc) AS niv_min_dt_utc
-				FROM			
-					COVID_PHI.v2NivInstancesM 
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS niv ON (SD.studypatientid = niv.StudyPatientId AND SD.study_day = niv.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day,
-					MAX(vent_dt_utc) AS iv_max_dt_utc,
-					MIN(vent_dt_utc) AS iv_min_dt_utc
-				FROM			
-					COVID_PHI.v2IVInstancesM 
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS IV ON (SD.studypatientid = IV.StudyPatientId AND SD.study_day = IV.study_day)
-			LEFT JOIN
-				(SELECT 
-					studypatientid, study_day, FiO2_value, PaO2_value, PEEP_value, PF_ratio  
-				 FROM 
-					(
-					SELECT 
-						SD.studypatientid, SD.study_day, HV.FiO2_value, HV.PaO2_value, HV.PEEP_value, HV.PF_ratio, 
-						ROW_number() over (PARTITION BY SD.studypatientid, SD.study_day ORDER BY HV.PF_ratio ASC) AS rn
-					FROM 
-						COVID_PHI.v2HypoxiaVarM HV 
-						JOIN COVID_PHI.v2StudyDayM SD ON (HV.studypatientid = SD.studypatientid AND PaO2_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
-					) AS hypoxiaVar_rows
-				 WHERE 
-					rn = 1
-				) AS HV ON (SD.studypatientid = HV.studypatientid AND SD.study_day = HV.study_day)
-			LEFT JOIN
-				(SELECT 
-					studypatientid, study_day, FiO2_value, PaO2_value, PEEP_value, PF_ratio  
-				 FROM 
-					(
-					SELECT 
-						SD.studypatientid, SD.study_day, HV.FiO2_value, HV.PaO2_value, HV.PEEP_value, PF_ratio,
-						ROW_number() over (PARTITION BY SD.studypatientid, SD.study_day ORDER BY HV.FiO2_value DESC) AS rn
-				 	FROM 
-						COVID_PHI.v2HypoxiaVarM HV 
-						JOIN COVID_PHI.v2StudyDayM SD ON (HV.studypatientid = SD.studypatientid AND FiO2_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
-					WHERE
-						row_type = 'PEEP & FiO2 pair'
-					) AS hypoxiaVar_rows
-				 WHERE 
-					rn = 1
-				) AS HV2 ON (SD.studypatientid = HV2.studypatientid AND SD.study_day = HV2.study_day)
-			LEFT JOIN
-				(
-				SELECT 
-					studypatientid, study_day, MAX(result_val) as FiO2_value, NULL as PaO2_value, NULL as PEEP_value, NULL as PF_ratio
-			 	FROM 
-					COVID_PHI.v2HourlyFiO2MeasurementsM HV 
-				GROUP BY
-					studypatientid, study_day
-				) AS HV3 ON (SD.studypatientid = HV3.studypatientid AND SD.study_day = HV3.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day,
-					MAX(ecmo_dt_utc) AS ecmo_max_dt_utc,
-					MIN(ecmo_dt_utc) AS ecmo_min_dt_utc
-				FROM			
-					COVID_PHI.v2ECMOInstancesM 
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS ecmo ON (SD.studypatientid = ecmo.StudyPatientId AND SD.study_day = ecmo.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day,
-					MAX(score) AS sofa_score
-				FROM			
-					COVID_PHI.v2SofaInstancesM 
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS sofa ON (SD.studypatientid = sofa.StudyPatientId AND SD.study_day = sofa.study_day)
-			LEFT JOIN 
-				(
-				SELECT 
-					StudyPatientId, study_day,
-					MAX(rrt_dt_utc) AS rrt_max_dt_utc,
-					MIN(rrt_dt_utc) AS rrt_min_dt_utc
-				FROM			
-					COVID_PHI.v2RRTInstancesM 
-				GROUP BY 
-					StudyPatientId, study_day
-				) AS rrt ON (SD.studypatientid = rrt.StudyPatientId AND SD.study_day = rrt.study_day)
-		WHERE 
-			DOS.ICU_discharge_dt_utc > SD.day_start_utc 
-				AND 
-			DOS.ICU_admit_dt_utc < SD.day_end_utc 
-		) AS pre_query
-;
-*/
 /* ************************************** future ************************************** */
 
 ### v3_Form6Discharge_all ###
