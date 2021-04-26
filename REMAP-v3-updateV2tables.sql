@@ -4,7 +4,7 @@ created by AndrewJKing.com | @AndrewsJourney
 
 NAVIGATION: 
 	ALL are COVID_PHI
-	v2EnrolledPerson -> FROM REMAP.v3Participant, REMAP.v3IdMap, REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere, REMAP.v3LocOrder
+	v2EnrolledPerson -> FROM REMAP.v3Participant, REMAP.v3IdMap, REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere, REMAP.v3LocOrder, REMAP.ManualChange_StartOfHospitalization_utc
 	v2EnrolledIcuAdmitsM -> FROM REMAP.v3IcuStay, REMAP.v3RandomizedModerate, REMAP.v3LocOrder, REMAP.v3Participant, REMAP.v3IdMap
 	v2EnrolledIcuAdmitsS -> FROM REMAP.v3IcuStay, REMAP.v3RandomizedSevere, REMAP.v3LocOrder, REMAP.v3Participant, REMAP.v3IdMap
 	v2StateHypoxiaAtEnrollM -> FROM REMAP.v3RandomizedModerate, REMAP.v3CalculatedStateHypoxiaAtEnroll
@@ -41,19 +41,30 @@ NAVIGATION:
 	### Create v2EnrolledPerson ###
 	DROP TABLE COVID_PHI.v2EnrolledPerson; 
 	CREATE TABLE COVID_PHI.v2EnrolledPerson
-		SELECT P.PERSON_ID, P.MRN, I.ENCNTR_ID, I.FIN, P.screendate_utc, P.STUDYPATIENTID, 
+		SELECT P.PERSON_ID, P.MRN, I.ENCNTR_ID, I.FIN, P.screendate_utc, P.StudyPatientID, 
 			M.randomized_utc AS RandomizedModerate_utc, S.randomized_utc AS RandomizedSevere_utc, 
-			L.StartOfHospitalization_utc, L.EndOfHospitalization_utc, P.REGIMEN, CURRENT_TIMESTAMP AS last_update 
+			MCSH.StartOfHospitalization_utc AS AS1,
+			L.StartOfHospitalization_utc AS AS2 ,
+			IFNULL(MCSH.StartOfHospitalization_utc, L.StartOfHospitalization_utc) AS StartOfHospitalization_utc, 
+			L2.EndOfHospitalization_utc,
+			P.REGIMEN, CURRENT_TIMESTAMP AS last_update 
 		FROM REMAP.v3Participant P
 		JOIN REMAP.v3IdMap I ON P.STUDYPATIENTID = I.STUDYPATIENTID
 		LEFT JOIN REMAP.v3RandomizedModerate M ON P.STUDYPATIENTID = M.STUDYPATIENTID
 		LEFT JOIN REMAP.v3RandomizedSevere S ON P.STUDYPATIENTID = S.STUDYPATIENTID
-		LEFT JOIN (SELECT STUDYPATIENTID, MIN(beg_utc) AS StartOfHospitalization_utc, MAX(end_utc) AS EndOfHospitalization_utc
+		LEFT JOIN (SELECT STUDYPATIENTID, MIN(beg_utc) AS StartOfHospitalization_utc
 			FROM REMAP.v3LocOrder GROUP BY STUDYPATIENTID) AS L ON P.STUDYPATIENTID = L.STUDYPATIENTID
+		LEFT JOIN (
+			SELECT IM.StudyPatientID, MAX(REMAP.to_utc(EA.DISCH_DT_TM)) AS EndOfHospitalization_utc
+			FROM CT_DATA.ENCOUNTER_ALL EA 
+			JOIN REMAP.v3IdMap IM ON EA.encntr_id = IM.ENCNTR_ID
+			GROUP BY IM.StudyPatientID
+		) AS L2 ON P.STUDYPATIENTID = L2.STUDYPATIENTID
+		LEFT JOIN REMAP.ManualChange_StartOfHospitalization_utc MCSH ON P.STUDYPATIENTID = MCSH.STUDYPATIENTID
 		ORDER BY STUDYPATIENTID, ENCNTR_ID
 	; 
 	SELECT * FROM COVID_PHI.v2EnrolledPerson;
-	
+
 
 	### Create v2EnrolledIcuAdmitsM ###
 	DROP TABLE COVID_PHI.v2EnrolledIcuAdmitsM;

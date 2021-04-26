@@ -90,7 +90,7 @@ CREATE TABLE REMAP.v3LocOrder
 				UNION
 					SELECT 'med', encntr_id, MAX(event_end_dt_tm) AS max_event_dt FROM CT_DATA.CE_MED 
 					WHERE encntr_id IN (SELECT encntr_id FROM REMAP.v3IdMap) GROUP by encntr_id
-				) AS by_type
+				) AS by_typedf
 			GROUP BY encntr_id
 		;
 		# clost open loc entries up until most recent entry

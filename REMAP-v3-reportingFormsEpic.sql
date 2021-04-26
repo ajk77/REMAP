@@ -6,6 +6,7 @@ NAVIGATION:
 	TABLE BUILD ORDER 
 	REMAPe.ve3_RAR_condensed -> FROM REMAPe.ve3Lab, REMAPe.ve3Participant, REMAPe.ve3CalculatedStateHypoxiaAtEnroll, REMAPe.ve3RandomizedModerate, REMAPe.ve3LocOrder, REMAPe.ve3RandomizedSevere, REMAPe.ve3IcuDaysOnSupport
 	REMAPe.ve3_Form2Baseline_sections5to7 -> FROM REMAPe.ve3Lab, REMAPe.ve3Physio, REMAPe.ve3RandomizedModerate, REMAPe.ve3RandomizedSevere, REMAPe.ve3CalculatedPEEPjoinFiO2, REMAPe.ve3CalculatedHourlyFiO2, REMAPe.ve3CalculatedStateHypoxiaAtEnroll, REMAPe.ve3OrganSupportInstance, COVID_PHIe.ve2ApacheeScoreS, , REMAP.v3RRTInstance, REMAP.v3CalculatedSOFA
+	REMAPe.ve3_Form4Daily_all -> REMAPe.ve3StudyDay, REMAPe.ve3IcuStay, REMAPe.ve3UnitStay, REMAPe.ve3OrganSupportInstance, REMAPe.ve3RRTInstance, REMAPe.ve3CalculatedSOFA, REMAPe.ve3PhysioStr, REMAPe.ve3CalculatedPFratio, REMAPe.ve3CalculatedHourlyFiO2, REMAPe.ve3CalculatedPEEPjoinFiO2
 */
 
 
@@ -548,3 +549,141 @@ UNION
 	DROP TABLE REMAP.v3tempHypoxiaVar;
 	DROP TABLE REMAP.v3tempBasSupp;
 SELECT * FROM REMAPe.ve3_Form2Baseline_sections5to7;
+
+### v3_Form4Daily_all ### 
+DROP TABLE REMAPe.ve3_Form4Daily_all;
+CREATE TABLE REMAPe.ve3_Form4Daily_all
+	WITH study_days AS (
+		SELECT SD.* 
+		FROM REMAPe.ve3StudyDay SD
+		JOIN REMAPe.ve3IcuStay I 
+		ON SD.StudyPatientID = I.STUDYPATIENTID 
+			AND SD.day_start_utc <= I.end_utc 
+			AND SD.day_end_utc >= I.beg_utc
+	), pt_loc_pre AS ( 
+		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT U.unit_type) AS pt_loc_str
+		FROM study_days SD
+		JOIN REMAPe.ve3UnitStay U
+		ON SD.StudypatientID = U.STUDYPATIENTID
+			AND SD.day_start_utc <= U.end_utc 
+			AND SD.day_end_utc >= U.beg_utc
+		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
+	), pt_loc AS (
+		SELECT StudyPatientID, STUDY_DAY, RandomizationType, pt_loc_str AS aux_pt_loc_str,
+			IF(pt_loc_str LIKE 'ICU%' OR pt_loc_str LIKE '%,ICU%', 'Physical', 'Repurposed') AS Physical_ICU
+	 	FROM pt_loc_pre
+	), support_pre AS (
+		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT O.support_type) AS support_str
+		FROM study_days SD
+		LEFT JOIN REMAPe.ve3OrganSupportInstance O
+		ON SD.StudyPatientID = O.studypatientid
+			AND O.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
+	), binary_support AS (
+		SELECT StudyPatientID, STUDY_DAY, RandomizationType, support_str AS aux_support_str,
+			IF(support_str LIKE '%HFNC%', 'Yes', 'No') AS on_HFNC,
+			IF(support_str LIKE '%NIV%', 'Yes', 'No') AS on_NIV,
+			IF(support_str LIKE '%ECMO%', 'Yes', 'No') AS on_ECMO
+	 	FROM support_pre
+	), rrt_support AS (
+		SELECT DISTINCT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, if(R.studypatientid IS NOT NULL, 'Yes', 'No') AS on_RRT
+		FROM study_days SD
+		LEFT JOIN REMAPe.ve3RRTInstance R
+		ON SD.studypatientid = R.studypatientid
+			AND R.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), sofa AS (	
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, IFNULL(MAX(C.score), 0) AS CardioSOFA
+		FROM study_days SD
+		LEFT JOIN REMAPe.ve3CalculatedSOFA C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND SD.study_day = C.study_day
+		GROUP BY SD.StudyPatientID, SD.Study_day, SD.RandomizationType
+	), IMV AS (
+		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, 
+			IFNULL(LEAST(timestampdiff(HOUR, MIN(O.event_utc),  MAX(O.event_utc)), 24), 0) as IMV_hours
+		FROM study_days SD
+		LEFT JOIN REMAPe.ve3OrganSupportInstance O
+		ON SD.StudyPatientID = O.studypatientid
+			AND O.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+		WHERE O.support_type = 'IMV'
+		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
+	), airway_doc_pre AS (
+		SELECT P.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType,  if(P.documented_text LIKE '%Tracheostomy%', 'Tracheostomy', 'Endotracheal Tube') AS pt_airway
+		FROM REMAPe.ve3PhysioStr P
+		JOIN study_days SD ON SD.StudyPatientID = P.STUDYPATIENTID AND P.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+		WHERE P.sub_standard_meaning = 'Airway' OR P.result_str = 'IV device' 
+	), airway_doc AS (
+		SELECT StudyPatientID, Study_day, RandomizationType, GROUP_CONCAT(DISTINCT pt_airway) AS airway_str
+		FROM airway_doc_pre SD 
+		GROUP BY StudyPatientID, Study_day, RandomizationType
+	), oxygenation_pre AS ( # find lowest pf ratio 
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, PF_ratio, PaO2_float, FiO2_float, PEEP_float, PaO2_utc
+		FROM study_days SD
+		LEFT JOIN REMAPe.ve3CalculatedPFratio C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND C.PaO2_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), min_pf AS (
+		SELECT StudyPatientID, Study_day, randomizationType, MIN(PF_ratio) AS min_pf
+		FROM oxygenation_pre
+		GROUP BY StudyPatientID, Study_day, RandomizationType
+	), oxygenation AS (
+		SELECT O.StudyPatientID, O.Study_day, O.RandomizationType, O.PF_ratio, O.PaO2_float, O.FiO2_float, 
+			MAX(O.PEEP_float) AS PEEP_float, O.PaO2_utc
+		FROM oxygenation_pre O
+		JOIN min_pf M ON O.studypatientid = M.studypatientid AND O.study_day = M.study_day AND O.randomizationType = M.randomizationType
+		WHERE O.pf_ratio = M.min_pf
+		GROUP BY O.StudyPatientID, O.Study_day, O.RandomizationType, O.PF_ratio, O.PaO2_float, O.FiO2_float, O.PaO2_utc 
+	), FiO2_pre AS ( # find highest fio2
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, result_float AS FiO2_float
+		FROM study_days SD
+		LEFT JOIN REMAPe.ve3CalculatedHourlyFiO2 C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND C.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), max_fio2 AS (
+		SELECT StudyPatientID, Study_day, randomizationType, MAX(FiO2_float) AS max_fio2
+		FROM FiO2_pre
+		GROUP BY StudyPatientID, Study_day, RandomizationType
+	), peep_pre AS ( # find peep corresponding to fio2
+		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, PEEP_float, FiO2_float
+		FROM study_days SD
+		LEFT JOIN REMAPe.ve3CalculatedPEEPjoinFiO2 C 
+		ON SD.StudyPatientID = C.StudyPatientID 
+			AND C.FiO2_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+	), fio2_peep AS (
+		SELECT F.StudyPatientID, F.Study_day, F.RandomizationType, F.max_fio2 AS FiO2_float, MAX(P.PEEP_float) AS PEEP_float
+		FROM max_fio2 F
+		LEFT JOIN peep_pre P ON P.StudyPatientID = F.studypatientid AND P.study_day = F.study_day AND P.randomizationType = F.randomizationType
+		WHERE P.fio2_float = F.max_fio2 OR P.fio2_float IS NULL 
+		GROUP BY F.StudyPatientID, F.Study_day, F.RandomizationType, F.max_fio2 
+	)
+	SELECT DISTINCT 
+		SD.StudyPatientID,
+		SD.RandomizationType,
+		SD.study_day,
+		SD.day_date_local,
+		'Yes'AS pt_in_ICU,
+		P.Physical_ICU,
+		P.aux_pt_loc_str,
+		A.airway_str,
+		B.on_HFNC,
+		B.on_NIV,
+		IFNULL(I.IMV_hours, 0) AS IMV_hours,
+		IFNULL(O.FiO2_float, E.FiO2_float) AS FiO2,
+		O.PaO2_float AS PaO2,
+		IFNULL(O.PEEP_float, E.FiO2_float) AS PEEP, 
+		S.CardioSOFA,
+		R.on_RRT,
+		B.on_ECMO,
+		if(B.on_ECMO IS NOT NULL, 'ECMO', NULL) AS ECMO_type
+	FROM study_days SD
+	LEFT JOIN pt_loc P ON SD.StudyPatientID = P.StudyPatientID AND SD.STUDY_DAY = P.STUDY_DAY AND SD.RandomizationType = P.RandomizationType
+	LEFT JOIN binary_support B ON SD.StudyPatientID = B.StudyPatientID AND SD.STUDY_DAY = B.STUDY_DAY AND SD.RandomizationType = B.RandomizationType
+	LEFT JOIN rrt_support R ON SD.StudyPatientID = R.StudyPatientID AND SD.STUDY_DAY = R.STUDY_DAY AND SD.RandomizationType = R.RandomizationType
+	LEFT JOIN sofa S ON SD.StudyPatientID = S.StudyPatientID AND SD.STUDY_DAY = S.STUDY_DAY AND SD.RandomizationType = S.RandomizationType
+	LEFT JOIN IMV I ON SD.StudyPatientID = I.StudyPatientID AND SD.STUDY_DAY = I.STUDY_DAY AND SD.RandomizationType = I.RandomizationType
+	LEFT JOIN airway_doc A ON SD.StudyPatientID = A.StudyPatientID AND SD.STUDY_DAY = A.STUDY_DAY AND SD.RandomizationType = A.RandomizationType
+	LEFT JOIN oxygenation O ON SD.StudyPatientID = O.StudyPatientID AND SD.STUDY_DAY = O.STUDY_DAY AND SD.RandomizationType = O.RandomizationType
+	LEFT JOIN fio2_peep E ON SD.StudyPatientID = E.StudyPatientID AND SD.STUDY_DAY = E.STUDY_DAY AND SD.RandomizationType = E.RandomizationType
+	ORDER BY SD.StudyPatientID, SD.RandomizationType, SD.Study_Day
+; 
+SELECT * FROM REMAPe.ve3_Form4Daily_all;

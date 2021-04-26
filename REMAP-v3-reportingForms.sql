@@ -6,6 +6,7 @@ NAVIGATION:
 	TABLE BUILD ORDER 
 	REMAP.v3_RAR_condensed -> FROM REMAP.v3Lab, REMAP.v3Participant, REMAP.v3CalculatedStateHypoxiaAtEnroll, REMAP.v3RandomizedModerate, REMAP.v3LocOrder, REMAP.v3RandomizedSevere, REMAP.v3IcuDaysOnSupport
 	REMAP.v3_Form2Baseline_sections5to7 -> FROM REMAP.v3Lab, REMAP.v3Physio, REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere, REMAP.v3CalculatedPEEPjoinFiO2, REMAP.v3CalculatedHourlyFiO2, REMAP.v3CalculatedStateHypoxiaAtEnroll, REMAP.v3OrganSupportInstance, COVID_PHI.v2ApacheeScoreS, REMAP.v3RRTInstance, REMAP.v3CalculatedSOFA
+	REMAP.v3_Form4Daily_all -> REMAP.v3StudyDay, REMAP.v3IcuStay, REMAP.v3UnitStay, REMAP.v3OrganSupportInstance, REMAP.v3RRTInstance, REMAP.v3CalculatedSOFA, REMAP.v3PhysioStr, REMAP.v3CalculatedPFratio, REMAP.v3CalculatedHourlyFiO2, REMAP.v3CalculatedPEEPjoinFiO2
 */
 
 
@@ -40,8 +41,10 @@ DROP TABLE REMAP.v3_RAR_condensed;
 				)
 			GROUP BY StudyPatientId
 		), last_location AS (
-			SELECT STUDYPATIENTID, REMAP.to_local(MAX(end_utc)) AS EndOfHospitalization_local
-			FROM REMAP.v3LocOrder GROUP BY STUDYPATIENTID
+			SELECT IM.StudyPatientID, REMAP.to_local(MAX(REMAP.to_utc(EA.DISCH_DT_TM))) AS EndOfHospitalization_local
+			FROM CT_DATA.ENCOUNTER_ALL EA 
+			JOIN REMAP.v3IdMap IM ON EA.encntr_id = IM.ENCNTR_ID
+			GROUP BY IM.StudyPatientID
 		), outcomesDay21M AS (
 			SELECT R.StudyPatientID, IFNULL(ROUND((504-I.hours_on_support_M)/24, 0), 22) AS ModerateOutcomeDay21
 			FROM REMAP.v3RandomizedModerate R
@@ -632,7 +635,7 @@ CREATE TABLE REMAP.v3_Form4Daily_all
 	), FiO2_pre AS ( # find highest fio2
 		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, result_float AS FiO2_float
 		FROM study_days SD
-		LEFT JOIN v3CalculatedHourlyFiO2 C 
+		LEFT JOIN REMAP.v3CalculatedHourlyFiO2 C 
 		ON SD.StudyPatientID = C.StudyPatientID 
 			AND C.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
 	), max_fio2 AS (

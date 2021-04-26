@@ -24,13 +24,15 @@ NAVIGATION:
 	CREATE TABLE REMAPe.ve2EnrolledPerson
 		SELECT P.PERSON_ID, P.MRN, I.ENCNTR_ID, I.FIN, P.screendate_utc, P.STUDYPATIENTID, 
 			M.randomized_utc AS RandomizedModerate_utc, S.randomized_utc AS RandomizedSevere_utc, 
-			L.StartOfHospitalization_utc, L.EndOfHospitalization_utc, P.REGIMEN, CURRENT_TIMESTAMP AS last_update 
+			IFNULL(MCSH.StartOfHospitalization_utc, L.StartOfHospitalization_utc) AS StartOfHospitalization_utc, 
+			L.EndOfHospitalization_utc, P.REGIMEN, CURRENT_TIMESTAMP AS last_update 
 		FROM REMAPe.ve3Participant P
 		JOIN REMAPe.ve3IdMap I ON P.STUDYPATIENTID = I.STUDYPATIENTID
 		LEFT JOIN REMAPe.ve3RandomizedModerate M ON P.STUDYPATIENTID = M.STUDYPATIENTID
 		LEFT JOIN REMAPe.ve3RandomizedSevere S ON P.STUDYPATIENTID = S.STUDYPATIENTID
 		LEFT JOIN (SELECT STUDYPATIENTID, MIN(beg_utc) AS StartOfHospitalization_utc, MAX(end_utc) AS EndOfHospitalization_utc
 			FROM REMAPe.ve3LocOrder GROUP BY STUDYPATIENTID) AS L ON P.STUDYPATIENTID = L.STUDYPATIENTID
+		LEFT JOIN REMAP.ManualChange_StartOfHospitalization_utc MCSH ON P.STUDYPATIENTID = MCSH.STUDYPATIENTID
 		ORDER BY STUDYPATIENTID, ENCNTR_ID
 	; 
 	SELECT * FROM REMAPe.ve2EnrolledPerson;

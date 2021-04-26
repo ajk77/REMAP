@@ -16,7 +16,7 @@ NAVIGATION:
 	ARCHIVED TABLE CREATIONS
 	/ REMAP.HistoricRandomizationTimes /
 	/ REMAP.NIVexclusion /
-	
+	/ REMAP.ManualChange_StartOfHospitalization_utc /
 */
 
 
@@ -302,4 +302,18 @@ DROP TABLE REMAP.NIVexclusion;
 	INSERT INTO REMAP.NIVexclusion (StudyPatientID, NIV_exclusion_start_utc, NIV_exclusion_end_utc) 
 	VALUES ('0400100001', '2020-04-01 12:00:00', '2020-04-02 16:00:00');
 */
- 
+
+/*
+DROP TABLE REMAP.ManualChange_StartOfHospitalization_utc;
+	CREATE TABLE REMAP.ManualChange_StartOfHospitalization_utc (
+	 		upk INT AUTO_INCREMENT PRIMARY KEY,
+		   StudyPatientID VARCHAR(100) NOT NULL,
+	   	StartOfHospitalization_utc DATETIME,
+			insert_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			row_comment VARCHAR(256) DEFAULT ''		
+	);
+
+	# below is an example insert statement 
+	INSERT INTO REMAP.ManualChange_StartOfHospitalization_utc (StudyPatientID, StartOfHospitalization_utc, row_comment) 
+	VALUES ('0400100001', '2020-04-01 12:00:00', 'AJK: replaced value b/c orginial val was 12 hours too soon.');
+ */
