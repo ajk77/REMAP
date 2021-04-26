@@ -121,7 +121,7 @@ CREATE TABLE REMAPe.ve3LocOrder
 	SET L1.loc_order = L2.max_loc_before + 1
 	WHERE L1.loc_order IS NULL 
 	;
-	
+
 	## fill in end_utc ##
 	UPDATE REMAPe.ve3LocOrder L1
 	JOIN REMAPe.ve3LocOrder L2 ON L1.studypatientid = L2.studypatientid AND L1.loc_order = L2.loc_order-1
@@ -133,19 +133,14 @@ CREATE TABLE REMAPe.ve3LocOrder
 	WITH last_data AS (
 		SELECT STUDYPATIENTID, MAX(max_event_utc) AS max_event_utc
 		FROM
-			(SELECT STUDYPATIENTID, MAX(REMAP.to_utc(TAKEN_TIME)) AS max_event_utc
-			FROM REMAPe.ve3IdMap I JOIN COVID_PINNACLE.MAR_ADMIN_INFO M ON I.FIN = M.MAR_ENC_CSN
+			(SELECT STUDYPATIENTID, MAX(end_utc) AS max_event_utc
+			FROM REMAPe.ve3LocOrder
+			WHERE end_utc <> '2100-12-31 00:00:00'
 			GROUP BY STUDYPATIENTID
 			UNION
-			SELECT STUDYPATIENTID, MAX(REMAP.to_utc(RESULT_TIME)) AS max_event_utc
-			FROM REMAPe.ve3IdMap I JOIN COVID_PINNACLE.ORDER_RESULTS O ON I.FIN = O.PAT_ENC_CSN_ID
-			GROUP BY STUDYPATIENTID
-			UNION
-			SELECT STUDYPATIENTID, MAX(REMAP.to_utc(REMAP.to_datetime_epic(RECORDED_TIME))) AS max_event_utc
-			FROM REMAPe.ve3IdMap I 
-			JOIN COVID_PINNACLE.IP_FLWSHT_REC R ON I.encntr_id = R.INPATIENT_DATA_ID
-			JOIN COVID_PINNACLE.IP_FLWSHT_MEAS M ON R.FSD_ID = M.FSD_ID
-			GROUP BY STUDYPATIENTID
+			SELECT STUDYPATIENTID, MAX(beg_utc) AS max_event_utc
+			FROM REMAPe.ve3LocOrder
+			GROUP BY STUDYPATIENTID 
 			) AS all_maxes
 		GROUP BY STUDYPATIENTID
 	)
@@ -154,7 +149,7 @@ CREATE TABLE REMAPe.ve3LocOrder
 	SET L1.END_UTC = L2.max_event_utc
 	WHERE L1.END_UTC = '2100-12-31 00:00:00'
 	;
-		
+
 	## indicate which location entriy the pt was at time of screening ##
 	UPDATE REMAPe.ve3LocOrder O
 		JOIN REMAPe.ve3Participant P ON O.STUDYPATIENTID = P.STUDYPATIENTID
@@ -268,7 +263,7 @@ CREATE TABLE REMAPe.tempv3Physio
 		FROM COVID_PINNACLE.IP_FLWSHT_MEAS M
 		JOIN COVID_PINNACLE.IP_FLWSHT_REC R ON R.FSD_ID = M.FSD_ID
 		WHERE R.INPATIENT_DATA_ID IN (SELECT encntr_id FROM REMAPe.ve3IdMap)
-			AND M.FLO_MEAS_ID IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('IP_FLWSHT_MEAS'))
+			AND M.FLO_MEAS_ID IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('IP_FLWSHT_MEAS')) 
 	;
 	## parse out diastolic bp. (systolic is handard by normal parse function) ##
 	INSERT INTO REMAPe.tempv3Physio
