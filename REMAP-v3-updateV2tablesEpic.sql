@@ -24,25 +24,18 @@ NAVIGATION:
 	CREATE TABLE REMAPe.ve2EnrolledPerson
 		SELECT P.PERSON_ID, P.MRN, I.ENCNTR_ID, I.FIN, P.screendate_utc, P.STUDYPATIENTID, 
 			M.randomized_utc AS RandomizedModerate_utc, S.randomized_utc AS RandomizedSevere_utc, 
-			IFNULL(MCSH.StartOfHospitalization_utc, L.StartOfHospitalization_utc) AS StartOfHospitalization_utc, 
-			L.EndOfHospitalization_utc, P.REGIMEN, CURRENT_TIMESTAMP AS last_update 
+			H.StartOfHospitalization_utc, 
+			H.EndOfHospitalization_utc,
+			H.DeceasedAtDischarge, 
+			P.REGIMEN, CURRENT_TIMESTAMP AS last_update 
 		FROM REMAPe.ve3Participant P
-		JOIN REMAPe.ve3IdMap I ON P.STUDYPATIENTID = I.STUDYPATIENTID
-		LEFT JOIN REMAPe.ve3RandomizedModerate M ON P.STUDYPATIENTID = M.STUDYPATIENTID
-		LEFT JOIN REMAPe.ve3RandomizedSevere S ON P.STUDYPATIENTID = S.STUDYPATIENTID
-		LEFT JOIN (
-			SELECT IM.StudyPatientID, MIN(REMAP.to_utc(PEH.HOSP_ADMSN_TIME)) AS StartOfHospitalization_utc,
-				MAX(REMAP.to_utc(PEH.HOSP_DISCH_TIME)) AS EndOfHospitalization_utc
-			FROM COVID_PINNACLE.PAT_ENC_HSP PEH
-			JOIN REMAPe.ve3IdMap IM ON PEH.PAT_ENC_CSN_ID = IM.FIN
-			GROUP BY IM.StudyPatientID
-		) AS L ON P.STUDYPATIENTID = L.STUDYPATIENTID
-		LEFT JOIN REMAP.ManualChange_StartOfHospitalization_utc MCSH ON P.STUDYPATIENTID = MCSH.STUDYPATIENTID
-		ORDER BY STUDYPATIENTID, ENCNTR_ID
+		JOIN REMAPe.ve3IdMap I ON P.StudyPatientID = I.StudyPatientID
+		LEFT JOIN REMAPe.ve3RandomizedModerate M ON P.StudyPatientID = M.StudyPatientID
+		LEFT JOIN REMAPe.ve3RandomizedSevere S ON P.StudyPatientID = S.StudyPatientID
+		LEFT JOIN REMAPe.ve3Hospitalization H	ON P.StudyPatientID = H.StudyPatientID
+		ORDER BY StudyPatientID, ENCNTR_ID
 	; 
 	SELECT * FROM REMAPe.ve2EnrolledPerson;
-	
-
 	
 
 	### Create ve2EnrolledIcuAdmitsM ###

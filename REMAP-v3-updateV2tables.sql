@@ -35,7 +35,7 @@ NAVIGATION:
 	v2testDailyCRFM -> FROM COVID_PHI.v2DailyCRFM
 	v2testDailyCRFS -> FROM COVID_PHI.v2DailyCRFS
 	v2ApacheeVars -> FROM REMAP.v3Physio, REMAP.v3PhysioStr, REMAP.v3RandomizedSevere, REMAP.v3CalculatedPFratio, REMAP.v3Lab,  CA_DB.INTAKE_FORM, COVID_PHI.v2EnrolledPerson
-	
+	VIEW: COVID_PHI.Outcome_day14 (DEPRICIATED) -> REMAP.v3Day14Outcomes
 */
 
 	### Create v2EnrolledPerson ###
@@ -43,24 +43,15 @@ NAVIGATION:
 	CREATE TABLE COVID_PHI.v2EnrolledPerson
 		SELECT P.PERSON_ID, P.MRN, I.ENCNTR_ID, I.FIN, P.screendate_utc, P.StudyPatientID, 
 			M.randomized_utc AS RandomizedModerate_utc, S.randomized_utc AS RandomizedSevere_utc, 
-			MCSH.StartOfHospitalization_utc AS AS1,
-			L.StartOfHospitalization_utc AS AS2 ,
-			IFNULL(MCSH.StartOfHospitalization_utc, L.StartOfHospitalization_utc) AS StartOfHospitalization_utc, 
-			L2.EndOfHospitalization_utc,
+			H.StartOfHospitalization_utc, 
+			H.EndOfHospitalization_utc,
+			H.DeceasedAtDischarge,
 			P.REGIMEN, CURRENT_TIMESTAMP AS last_update 
 		FROM REMAP.v3Participant P
-		JOIN REMAP.v3IdMap I ON P.STUDYPATIENTID = I.STUDYPATIENTID
-		LEFT JOIN REMAP.v3RandomizedModerate M ON P.STUDYPATIENTID = M.STUDYPATIENTID
-		LEFT JOIN REMAP.v3RandomizedSevere S ON P.STUDYPATIENTID = S.STUDYPATIENTID
-		LEFT JOIN (SELECT STUDYPATIENTID, MIN(beg_utc) AS StartOfHospitalization_utc
-			FROM REMAP.v3LocOrder GROUP BY STUDYPATIENTID) AS L ON P.STUDYPATIENTID = L.STUDYPATIENTID
-		LEFT JOIN (
-			SELECT IM.StudyPatientID, MAX(REMAP.to_utc(EA.DISCH_DT_TM)) AS EndOfHospitalization_utc
-			FROM CT_DATA.ENCOUNTER_ALL EA 
-			JOIN REMAP.v3IdMap IM ON EA.encntr_id = IM.ENCNTR_ID
-			GROUP BY IM.StudyPatientID
-		) AS L2 ON P.STUDYPATIENTID = L2.STUDYPATIENTID
-		LEFT JOIN REMAP.ManualChange_StartOfHospitalization_utc MCSH ON P.STUDYPATIENTID = MCSH.STUDYPATIENTID
+		JOIN REMAP.v3IdMap I ON P.StudyPatientID = I.StudyPatientID
+		LEFT JOIN REMAP.v3RandomizedModerate M ON P.StudyPatientID = M.StudyPatientID
+		LEFT JOIN REMAP.v3RandomizedSevere S ON P.StudyPatientID = S.StudyPatientID
+		LEFT JOIN REMAP.v3Hospitalization H	ON P.StudyPatientID = H.StudyPatientID
 		ORDER BY STUDYPATIENTID, ENCNTR_ID
 	; 
 	SELECT * FROM COVID_PHI.v2EnrolledPerson;
@@ -961,4 +952,9 @@ CREATE TABLE COVID_PHI.v2ApacheeVarS
 	
 
 SELECT 'updatev2tables is finished' AS Progress;
-		
+
+
+/*
+CREATE OR REPLACE VIEW COVID_PHI.Outcome_day14 AS
+	SELECT * FROM REMAP.v3Day14Outcomes ;
+*/		

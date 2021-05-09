@@ -28,9 +28,10 @@ NAVIGATION:
 	REMAPe.ve3CalculatedPEEPjoinFiO2 -> FROM REMAPe.ve3Physio, REMAPe.ve3CalculatedHourlyFiO2 
 	REMAPe.ve3CalculatedStateHypoxiaAtEnroll -> FROM REMAPe.ve3CalculatedPFratio, REMAPe.ve3RandomizedModerate, REMAPe.ve3RandomizedSevere, REMAPe.ve3OrganSupportInstance
 	REMAPe.ve3CalculatedSOFA -> FROM REMAPe.ve3Physio, REMAPe.ve3StudyDay, REMAPe.ve3Med,  REMAPe.ve3Physio
+	REMAPe.ve3Hospitalization -> REMAPe.ve3Participant, COVID_PINNACLE.PAT_ENC_HSP, REMAPe.ve3IdMap, CA_DB.ENROLLMENT_FORM , COVID_PHI.Locked_HospDisposition , COVID_PHI.Vital_Status_LTOC_to_COVID_Server
 	REMAPe.ve3IcuAdmitDaysOnSupport -> FROM REMAPe.ve3IcuStay, REMAPe.ve3UnitStay, REMAPe.ve3OrganSupportInstance, REMAPe.ve3RandomizedModerate, REMAPe.ve3RandomizedSevere
 	REMAPe.ve3IcuDaysOnSupport -> FROM REMAPe.ve3IcuAdmitDaysOnSupport
-	
+
 */
 
 /*
@@ -42,27 +43,6 @@ Dependencies
 
 */
 
-
-/* 
-TODO
-
-Codes
-	IO	'Transfusions'
-	IO	'RRT'
-	Physio 'RRT'
-	Med 'Vasopressors' 
-	Physio	'ECMO'
-	Physio 'Oxygen Flow Rate'
-
-Mappings
-	Med Vaso meds to meds mentioned in SOFA. 
-
-Tables to implement
-	REMAPe.ve3IO
-	REMAPe.ve3Med
-	REMAPe.ve3OrganSupportInstance # vaso, ecmo, and RRT
-	REMAPe.ve3CalculatedSOFA
-*/
 
 ### pull studypateintids from view ###
 DROP TABLE REMAPe.ve3Participant;
@@ -979,6 +959,49 @@ DROP TABLE REMAPe.ve3CalculatedSOFA;
 ;
 
 
+### CREATE ve3Hospitalization ###
+DROP TABLE REMAPe.ve3Hospitalization;
+CREATE TABLE REMAPe.ve3Hospitalization
+	WITH hospitalization AS (
+		SELECT 
+			P.StudyPatientID, 
+			IFNULL(MCSH.StartOfHospitalization_utc, L.StartOfHospitalization_utc) AS StartOfHospitalization_utc, 
+			L.EndOfHospitalization_utc 	
+		FROM REMAPe.ve3Participant P 
+		LEFT JOIN (
+			SELECT IM.StudyPatientID, MIN(REMAP.to_utc(PEH.HOSP_ADMSN_TIME)) AS StartOfHospitalization_utc,
+				MAX(REMAP.to_utc(PEH.HOSP_DISCH_TIME)) AS EndOfHospitalization_utc
+			FROM COVID_PINNACLE.PAT_ENC_HSP PEH
+			JOIN REMAPe.ve3IdMap IM ON PEH.PAT_ENC_CSN_ID = IM.FIN
+			GROUP BY IM.StudyPatientID
+		) AS L ON P.StudyPatientID = L.StudyPatientID
+		LEFT JOIN REMAP.ManualChange_StartOfHospitalization_utc MCSH ON P.StudyPatientID = MCSH.StudyPatientID
+	)
+	SELECT 
+		H.StudyPatientID, 
+		H.StartOfHospitalization_utc,
+		H.EndOfHospitalization_utc,
+		IF (EF.DeathDate IS NOT NULL 
+			OR DeceasedDisposition.StudyPatientID IS NOT NULL 
+			OR VS.DeathDate <= H.EndOfHospitalization_utc,
+			'Yes', 'No') AS DeceasedAtDischarge
+	FROM hospitalization H
+	LEFT JOIN
+		(SELECT StudyPatientID, DeathDate 
+		FROM CA_DB.ENROLLMENT_FORM 
+		WHERE StudyPatientID IS NOT NULL) AS EF ON H.STUDYPATIENTID = EF.StudyPatientID
+	LEFT JOIN 
+		(SELECT * FROM (SELECT CONCAT('0', StudyPatientID) AS StudyPatientID
+		FROM COVID_PHI.Locked_HospDisposition 
+		WHERE ROLLUP_NAME = 'Deceased') AS i_LHD) AS DeceasedDisposition ON H.StudyPatientID = DeceasedDisposition.StudyPatientID
+	LEFT JOIN
+		(SELECT StudyPatientID, DeathDate 
+		FROM COVID_PHI.Vital_Status_LTOC_to_COVID_Server
+		WHERE ninery_vital_status_desc = 'Dead') AS VS ON H.StudyPatientID = VS.StudyPatientID
+	ORDER BY H.StudyPatientID
+; #SELECT * FROM REMAPe.ve3Hospitalization;
+
+
 ### Create v3IcuAdmitDaysOnSupport ###
 DROP TABLE REMAPe.ve3IcuAdmitDaysOnSupport; 
 CREATE TABLE REMAPe.ve3IcuAdmitDaysOnSupport
@@ -1063,7 +1086,7 @@ CREATE TABLE REMAPe.ve3IcuDaysOnSupport
 	ORDER BY U.StudyPatientID
 ; # SELECT * FROM REMAPe.ve3IcuDaysOnSupport;
 
-			
+		
 /* **************************** */
 
 SELECT 've3 build is finished' AS Progress;

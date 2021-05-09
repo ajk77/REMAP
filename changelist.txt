@@ -1,3 +1,11 @@
+------------------------------changelist 2021/05/09------------------------------
+REMAP.v3Hospitalization and REMAPe.ve3Hospitalization contain columns for StudyPatientID, StartOfHospitalization_utc, EndOfHospitalization_utc, and DeceasedAtDischarge {'Yes', 'No'}. 
+
+REMAP.v3Day14Outcomes and REMAPe.ve3Day14Outcomes are an update of COVID_PHI.Outcome_day14 that includes Deceased. (COVID_PHI.Outcome_day14 still works but it is a view of the new REMAP.v3Day14Outcomes table.)
+
+I also updated REMAP.v2EnrolledPerson and REMAPe.ve2EnrolledPerson to include the DeceasedAtDischarge column. 
+
+
 ------------------------------changelist 2021/04/25------------------------------
 Created v3_Form4Daily_all. 
 Added ManualChange_StartOfHospitalization_utc for editing Start of Hospitalization

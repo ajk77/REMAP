@@ -30,9 +30,10 @@ NAVIGATION:
 	REMAP.v3CalculatedPEEPjoinFiO2 -> FROM REMAP.v3Physio, REMAP.v3CalculatedHourlyFiO2 
 	REMAP.v3CalculatedStateHypoxiaAtEnroll -> FROM REMAP.v3CalculatedPFratio, REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere, REMAP.v3OrganSupportInstance
 	REMAP.v3CalculatedSOFA -> FROM REMAP.v3Physio, REMAP.v3StudyDay, REMAP.v3Med, CT_DATA.MAR_AD MAR, CT_DATA.CODE_VALUE, REMAP.v3Physio
+	REMAP.v3Hospitalization -> REMAP.v3Participant, REMAP.v3LocOrder, CT_DATA.ENCOUNTER_ALL, REMAP.v3IdMap, REMAP.ManualChange_StartOfHospitalization_utc, COVID_PHI.Locked_HospDisposition, COVID_PHI.Vital_Status_LTOC_to_COVID_Server
 	REMAP.v3IcuAdmitDaysOnSupport -> FROM REMAP.v3IcuStay, REMAP.v3UnitStay, REMAP.v3OrganSupportInstance, REMAP.v3RandomizedModerate, REMAP.v3RandomizedSevere
 	REMAP.v3IcuDaysOnSupport -> FROM REMAP.v3IcuAdmitDaysOnSupport
-	
+
 */
 
 /*
@@ -964,6 +965,50 @@ DROP TABLE REMAP.v3CalculatedSOFA;
 		) AS V
 		ORDER BY StudyPatientID, RandomizationType, study_day, score DESC
 ;
+
+### CREATE v3Hospitalization ###
+DROP TABLE REMAP.v3Hospitalization;
+CREATE TABLE REMAP.v3Hospitalization
+	WITH hospitalization AS (
+		SELECT 
+			P.StudyPatientID, 
+			IFNULL(MCSH.StartOfHospitalization_utc, L.StartOfHospitalization_utc) AS StartOfHospitalization_utc,
+			L2.EndOfHospitalization_utc	
+		FROM REMAP.v3Participant P 
+		LEFT JOIN (
+			SELECT STUDYPATIENTID, MIN(beg_utc) AS StartOfHospitalization_utc
+			FROM REMAP.v3LocOrder GROUP BY STUDYPATIENTID) AS L ON P.STUDYPATIENTID = L.STUDYPATIENTID
+		LEFT JOIN (
+			SELECT IM.StudyPatientID, MAX(REMAP.to_utc(EA.DISCH_DT_TM)) AS EndOfHospitalization_utc
+			FROM CT_DATA.ENCOUNTER_ALL EA 
+			JOIN REMAP.v3IdMap IM ON EA.encntr_id = IM.ENCNTR_ID
+			GROUP BY IM.StudyPatientID
+			) AS L2 ON P.STUDYPATIENTID = L2.STUDYPATIENTID
+		LEFT JOIN REMAP.ManualChange_StartOfHospitalization_utc MCSH ON P.STUDYPATIENTID = MCSH.STUDYPATIENTID
+	)
+	SELECT 
+		H.StudyPatientID, 
+		H.StartOfHospitalization_utc,
+		H.EndOfHospitalization_utc,
+		IF (EF.DeathDate IS NOT NULL 
+			OR DeceasedDisposition.StudyPatientID IS NOT NULL 
+			OR VS.DeathDate <= H.EndOfHospitalization_utc,
+			'Yes', 'No') AS DeceasedAtDischarge
+	FROM hospitalization H
+	LEFT JOIN
+		(SELECT StudyPatientID, DeathDate 
+		FROM CA_DB.ENROLLMENT_FORM 
+		WHERE StudyPatientID IS NOT NULL) AS EF ON H.STUDYPATIENTID = EF.StudyPatientID
+	LEFT JOIN 
+		(SELECT * FROM (SELECT CONCAT('0', StudyPatientID) AS StudyPatientID
+		FROM COVID_PHI.Locked_HospDisposition 
+		WHERE ROLLUP_NAME = 'Deceased') AS i_LHD) AS DeceasedDisposition ON H.StudyPatientID = DeceasedDisposition.StudyPatientID
+	LEFT JOIN
+		(SELECT StudyPatientID, DeathDate 
+		FROM COVID_PHI.Vital_Status_LTOC_to_COVID_Server
+		WHERE ninery_vital_status_desc = 'Dead') AS VS ON H.StudyPatientID = VS.StudyPatientID
+	ORDER BY H.StudyPatientID
+; #SELECT * FROM REMAP.v3Hospitalization;
 
 ### Create v3IcuAdmitDaysOnSupport ###
 DROP TABLE REMAP.v3IcuAdmitDaysOnSupport; 
