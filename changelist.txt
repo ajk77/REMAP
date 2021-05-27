@@ -1,3 +1,9 @@
+------------------------------changelist 2021/05/27------------------------------
+Made corrections to v3IcuStay. The simplified code fixed issues where units were getting dropped. 
+Changes were propogated through v3IcuAdmitDaysOnSupport. All other tables should be okay. 
+
+todo: [ ] determine if REMAPe needs updated as well
+
 ------------------------------changelist 2021/05/09------------------------------
 REMAP.v3Hospitalization and REMAPe.ve3Hospitalization contain columns for StudyPatientID, StartOfHospitalization_utc, EndOfHospitalization_utc, and DeceasedAtDischarge {'Yes', 'No'}. 
 
