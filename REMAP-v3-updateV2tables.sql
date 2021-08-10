@@ -35,7 +35,7 @@ NAVIGATION:
 	v2testDailyCRFM -> FROM COVID_PHI.v2DailyCRFM
 	v2testDailyCRFS -> FROM COVID_PHI.v2DailyCRFS
 	v2ApacheeVars -> FROM REMAP.v3Physio, REMAP.v3PhysioStr, REMAP.v3RandomizedSevere, REMAP.v3CalculatedPFratio, REMAP.v3Lab,  CA_DB.INTAKE_FORM, COVID_PHI.v2EnrolledPerson
-	VIEW: COVID_PHI.Outcome_day14 (DEPRICIATED) -> REMAP.v3Day14Outcomes
+	# VIEW: COVID_PHI.Outcome_day14 (DEPRICIATED)#
 */
 
 	### Create v2EnrolledPerson ###

@@ -15,32 +15,32 @@ NAVIGATION:
 DROP TABLE REMAP.v3_RAR_condensed;
 	CREATE TABLE REMAP.v3_RAR_condensed
 		WITH all_ddimer_24hrPreScreen AS (
-			SELECT L.event_id, L.studypatientid, L.event_utc, L.result_float, L.units, L.NORMAL_HIGH 
+			SELECT L.event_id, L.StudyPatientID, L.event_utc, L.result_float, L.units, L.NORMAL_HIGH 
 			FROM
 				(SELECT * FROM REMAP.v3Lab where sub_standard_meaning = 'D-dimer') as L 
-				JOIN REMAP.v3Participant R ON L.studypatientid = R.studypatientid 
+				JOIN REMAP.v3Participant R ON L.StudyPatientID = R.StudyPatientID 
 					AND L.event_utc BETWEEN ADDDATE(R.screendate_utc, INTERVAL -24 HOUR) AND R.screendate_utc
 		), ddimer_closest AS (
-			SELECT a.event_id, a.studypatientid, a.event_utc, a.result_float, a.units, a.NORMAL_HIGH
+			SELECT a.event_id, a.StudyPatientID, a.event_utc, a.result_float, a.units, a.NORMAL_HIGH
 			FROM all_ddimer_24hrPreScreen a
 			INNER JOIN (
-			    SELECT studypatientid, MAX(event_utc) AS event_utc
+			    SELECT StudyPatientID, MAX(event_utc) AS event_utc
 			    FROM all_ddimer_24hrPreScreen
-			    GROUP BY studypatientid
-			) b ON a.studypatientid = b.studypatientid AND a.event_utc = b.event_utc
+			    GROUP BY StudyPatientID
+			) b ON a.StudyPatientID = b.StudyPatientID AND a.event_utc = b.event_utc
 		), StateHypoxia_at_Randomization AS (
-			SELECT StudyPatientId, MAX(StateHypoxia) AS StateHypoxia 
+			SELECT StudyPatientID, MAX(StateHypoxia) AS StateHypoxia 
 			FROM REMAP.v3CalculatedStateHypoxiaAtEnroll 
 			WHERE RandomizationType = 'Moderate' 
-			GROUP BY StudyPatientId
+			GROUP BY StudyPatientID
 			UNION
-			SELECT StudyPatientId, MAX(StateHypoxia) AS StateHypoxia 
+			SELECT StudyPatientID, MAX(StateHypoxia) AS StateHypoxia 
 			FROM REMAP.v3CalculatedStateHypoxiaAtEnroll 
 			WHERE RandomizationType = 'Severe' 
-				AND StudyPatientId NOT IN (
-					SELECT StudyPatientId FROM REMAP.v3RandomizedModerate
+				AND StudyPatientID NOT IN (
+					SELECT StudyPatientID FROM REMAP.v3RandomizedModerate
 				)
-			GROUP BY StudyPatientId
+			GROUP BY StudyPatientID
 		), last_location AS (
 			SELECT IM.StudyPatientID, REMAP.to_local(MAX(REMAP.to_utc(EA.DISCH_DT_TM))) AS EndOfHospitalization_local
 			FROM CT_DATA.ENCOUNTER_ALL EA 
@@ -49,11 +49,11 @@ DROP TABLE REMAP.v3_RAR_condensed;
 		), outcomesDay21M AS (
 			SELECT R.StudyPatientID, IFNULL(ROUND((504-I.hours_on_support_M)/24, 0), 22) AS ModerateOutcomeDay21
 			FROM REMAP.v3RandomizedModerate R
-			LEFT JOIN REMAP.v3IcuDaysOnSupport I ON R.studypatientid = I.studypatientid		
+			LEFT JOIN REMAP.v3IcuDaysOnSupport I ON R.StudyPatientID = I.StudyPatientID		
 		), outcomesDay21S AS (
 			SELECT R.StudyPatientID, IFNULL(ROUND((504-I.hours_on_support_S)/24, 0), 22) AS SevereOutcomeDay21 
 			FROM REMAP.v3RandomizedSevere R
-			LEFT JOIN REMAP.v3IcuDaysOnSupport I ON R.studypatientid = I.studypatientid		
+			LEFT JOIN REMAP.v3IcuDaysOnSupport I ON R.StudyPatientID = I.StudyPatientID		
 		)
 		SELECT 
 			P.StudyPatientID, 
@@ -81,14 +81,14 @@ DROP TABLE REMAP.v3_RAR_condensed;
 			'<e>' AS ATTACPatientID,
 			DATE_FORMAT(CURRENT_TIMESTAMP, '%d/%m/%Y %H:%i') AS INSERT_DATE
 		FROM REMAP.v3Participant P
-			LEFT JOIN REMAP.v3RandomizedModerate M ON P.STUDYPATIENTID = M.STUDYPATIENTID
-			LEFT JOIN REMAP.v3RandomizedSevere S ON P.STUDYPATIENTID = S.STUDYPATIENTID
-			LEFT JOIN StateHypoxia_at_Randomization H ON P.STUDYPATIENTID = H.STUDYPATIENTID
-			LEFT JOIN ddimer_closest D ON P.STUDYPATIENTID = D.STUDYPATIENTID
-			LEFT JOIN last_location L ON P.STUDYPATIENTID = L.STUDYPATIENTID
+			LEFT JOIN REMAP.v3RandomizedModerate M ON P.StudyPatientID = M.StudyPatientID
+			LEFT JOIN REMAP.v3RandomizedSevere S ON P.StudyPatientID = S.StudyPatientID
+			LEFT JOIN StateHypoxia_at_Randomization H ON P.StudyPatientID = H.StudyPatientID
+			LEFT JOIN ddimer_closest D ON P.StudyPatientID = D.StudyPatientID
+			LEFT JOIN last_location L ON P.StudyPatientID = L.StudyPatientID
 			LEFT JOIN outcomesDay21M OM ON P.StudyPatientID = OM.StudyPatientID
 			LEFT JOIN outcomesDay21S OS ON P.StudyPatientID = OS.StudyPatientID
-		ORDER BY StudyPatientId
+		ORDER BY StudyPatientID
 ; 
 SELECT * FROM REMAP.v3_RAR_condensed;
 
@@ -132,32 +132,32 @@ CREATE TABLE REMAP.v3tempBas
 		), sec6_preRand AS (
 			SELECT 'Moderate' as RandomizationType, R.randomized_utc, M.*
 			FROM REMAP.v3RandomizedModerate R
-			JOIN all_sec6_meas M ON R.studypatientid = M.studypatientid 
+			JOIN all_sec6_meas M ON R.StudyPatientID = M.StudyPatientID 
 				AND M.event_utc < ADDDATE(R.randomized_utc, INTERVAL 2 HOUR) 
 			UNION
 			SELECT 'Severe' as RandomizationType, R.randomized_utc, M.*
 			FROM REMAP.v3RandomizedSevere R
-			JOIN all_sec6_meas M ON R.studypatientid = M.studypatientid 
+			JOIN all_sec6_meas M ON R.StudyPatientID = M.StudyPatientID 
 				AND M.event_utc < ADDDATE(R.randomized_utc, INTERVAL 2 HOUR) 			
 		), sec7_preRand AS (
 			SELECT 'Moderate' as RandomizationType, R.randomized_utc, M.*
 			FROM REMAP.v3RandomizedModerate R
-			JOIN all_sec7_meas M ON R.studypatientid = M.studypatientid 
+			JOIN all_sec7_meas M ON R.StudyPatientID = M.StudyPatientID 
 				AND M.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -8 HOUR) AND ADDDATE(R.randomized_utc, INTERVAL 2 HOUR) 
 			UNION
 			SELECT 'Severe' as RandomizationType, R.randomized_utc, M.*
 	 		FROM REMAP.v3RandomizedSevere R
-			JOIN all_sec7_meas M ON R.studypatientid = M.studypatientid 
+			JOIN all_sec7_meas M ON R.StudyPatientID = M.StudyPatientID 
 				AND M.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -8 HOUR) AND ADDDATE(R.randomized_utc, INTERVAL 2 HOUR)
 		), closest_meas_pre AS (  # can contain duplucate values at same event_utc
 			SELECT a.*
 			FROM sec6_preRand a
 			INNER JOIN (
-			    SELECT studypatientid, RandomizationType, baseline_standard,
+			    SELECT StudyPatientID, RandomizationType, baseline_standard,
 				 	MIN(ABS(TIMESTAMPDIFF(SECOND, event_utc, randomized_utc))) AS smallest_event_diff
 			    FROM sec6_preRand
-			    GROUP BY studypatientid, RandomizationType, baseline_standard
-			) AS b ON a.studypatientid = b.studypatientid 
+			    GROUP BY StudyPatientID, RandomizationType, baseline_standard
+			) AS b ON a.StudyPatientID = b.StudyPatientID 
 				AND a.RandomizationType = b.RandomizationType 
 				AND a.baseline_standard = b.baseline_standard
 				AND ABS(TIMESTAMPDIFF(SECOND, a.event_utc, a.randomized_utc)) = b.smallest_event_diff
@@ -165,11 +165,11 @@ CREATE TABLE REMAP.v3tempBas
 			SELECT a.*
 			FROM sec7_preRand a
 			INNER JOIN (
-			    SELECT studypatientid, RandomizationType, baseline_standard,
+			    SELECT StudyPatientID, RandomizationType, baseline_standard,
 				 	MIN(ABS(TIMESTAMPDIFF(SECOND, event_utc, randomized_utc))) AS smallest_event_diff
 			    FROM sec7_preRand
-			    GROUP BY studypatientid, RandomizationType, baseline_standard
-			) AS b ON a.studypatientid = b.studypatientid 
+			    GROUP BY StudyPatientID, RandomizationType, baseline_standard
+			) AS b ON a.StudyPatientID = b.StudyPatientID 
 				AND a.RandomizationType = b.RandomizationType 
 				AND a.baseline_standard = b.baseline_standard
 				AND ABS(TIMESTAMPDIFF(SECOND, a.event_utc, a.randomized_utc)) = b.smallest_event_diff 
@@ -177,11 +177,11 @@ CREATE TABLE REMAP.v3tempBas
 			SELECT a.*
 			FROM closest_meas_pre a
 			INNER JOIN (
-			    SELECT studypatientid, RandomizationType, baseline_standard,
+			    SELECT StudyPatientID, RandomizationType, baseline_standard,
 				 	MAX(result_float) AS max_result_float
 			    FROM closest_meas_pre
-			    GROUP BY studypatientid, RandomizationType, baseline_standard
-			) AS b ON a.studypatientid = b.studypatientid 
+			    GROUP BY StudyPatientID, RandomizationType, baseline_standard
+			) AS b ON a.StudyPatientID = b.StudyPatientID 
 				AND a.RandomizationType = b.RandomizationType 
 				AND a.baseline_standard = b.baseline_standard
 				AND a.result_float = b.max_result_float
@@ -190,106 +190,106 @@ CREATE TABLE REMAP.v3tempBas
 		WITH PEEPjoinFiO2_preRand AS (
 			SELECT 'Moderate' as RandomizationType, R.randomized_utc, C.*
 			FROM REMAP.v3RandomizedModerate R
-			JOIN REMAP.v3CalculatedPEEPjoinFiO2 C ON R.studypatientid = C.studypatientid 
+			JOIN REMAP.v3CalculatedPEEPjoinFiO2 C ON R.StudyPatientID = C.StudyPatientID 
 				AND C.PEEP_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc
 			UNION
 			SELECT 'Severe' as RandomizationType, R.randomized_utc, C.*
 			FROM REMAP.v3RandomizedSevere R
-			JOIN REMAP.v3CalculatedPEEPjoinFiO2 C ON R.studypatientid = C.studypatientid 
+			JOIN REMAP.v3CalculatedPEEPjoinFiO2 C ON R.StudyPatientID = C.StudyPatientID 
 				AND C.PEEP_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc 
 		), FiO2_preRand AS (
 			SELECT 'Moderate' as RandomizationType, R.randomized_utc, 
 				C.StudyPatientID, C.event_utc AS FiO2_utc, C.result_float AS FiO2_float 
 			FROM REMAP.v3RandomizedModerate R
-			JOIN REMAP.v3CalculatedHourlyFiO2 C ON R.studypatientid = C.studypatientid 
+			JOIN REMAP.v3CalculatedHourlyFiO2 C ON R.StudyPatientID = C.StudyPatientID 
 				AND C.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc
 			UNION
 			SELECT 'Severe' as RandomizationType, R.randomized_utc, 
 				C.StudyPatientID, C.event_utc AS FiO2_utc, C.result_float AS FiO2_float 
 			FROM REMAP.v3RandomizedSevere R
-			JOIN REMAP.v3CalculatedHourlyFiO2 C ON R.studypatientid = C.studypatientid 
+			JOIN REMAP.v3CalculatedHourlyFiO2 C ON R.StudyPatientID = C.StudyPatientID 
 				AND C.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc 
 		), closest_PEEPjoinFiO2_pre AS (
 			SELECT a.*
 			FROM PEEPjoinFiO2_preRand a
 			INNER JOIN (
-			    SELECT studypatientid, RandomizationType, 
+			    SELECT StudyPatientID, RandomizationType, 
 				 	MIN(ABS(TIMESTAMPDIFF(SECOND, PEEP_utc, randomized_utc))) AS smallest_event_diff
 			    FROM PEEPjoinFiO2_preRand
-			    GROUP BY studypatientid, RandomizationType
-			) AS b ON a.studypatientid = b.studypatientid 
+			    GROUP BY StudyPatientID, RandomizationType
+			) AS b ON a.StudyPatientID = b.StudyPatientID 
 				AND a.RandomizationType = b.RandomizationType 
 				AND ABS(TIMESTAMPDIFF(SECOND, a.PEEP_utc, a.randomized_utc)) = b.smallest_event_diff
 		), closest_FiO2_preRand AS (
 			SELECT a.*
 			FROM FiO2_preRand a
 			INNER JOIN (
-			    SELECT studypatientid, RandomizationType, 
+			    SELECT StudyPatientID, RandomizationType, 
 				 	MIN(ABS(TIMESTAMPDIFF(SECOND, FiO2_utc, randomized_utc))) AS smallest_event_diff
 			    FROM FiO2_preRand
-			    GROUP BY studypatientid, RandomizationType
-			) AS b ON a.studypatientid = b.studypatientid 
+			    GROUP BY StudyPatientID, RandomizationType
+			) AS b ON a.StudyPatientID = b.StudyPatientID 
 				AND a.RandomizationType = b.RandomizationType 
 				AND ABS(TIMESTAMPDIFF(SECOND, a.FiO2_utc, a.randomized_utc)) = b.smallest_event_diff
 		), combined_stateHypoxia AS (
-			SELECT R.STUDYPATIENTID, 'Moderate' AS RandomizationType, H.onInvasiveVent,
+			SELECT R.StudyPatientID, 'Moderate' AS RandomizationType, H.onInvasiveVent,
 				PaO2_float,	PaO2_units, PEEP_float, FiO2_float, PF_ratio, StateHypoxia
 			FROM REMAP.v3RandomizedModerate R
 			LEFT JOIN REMAP.v3CalculatedStateHypoxiaAtEnroll H 
-			ON R.STUDYPATIENTID = H.STUDYPATIENTID AND H.RandomizationType = 'Moderate'
+			ON R.StudyPatientID = H.StudyPatientID AND H.RandomizationType = 'Moderate'
 			UNION
-			SELECT R.STUDYPATIENTID, 'Severe' AS RandomizationType, H.onInvasiveVent,
+			SELECT R.StudyPatientID, 'Severe' AS RandomizationType, H.onInvasiveVent,
 				PaO2_float,	PaO2_units, PEEP_float, FiO2_float, PF_ratio, StateHypoxia  
 			FROM REMAP.v3RandomizedSevere R 
 			LEFT JOIN REMAP.v3CalculatedStateHypoxiaAtEnroll H 
-			ON R.STUDYPATIENTID = H.STUDYPATIENTID AND H.RandomizationType = 'Severe'
+			ON R.StudyPatientID = H.StudyPatientID AND H.RandomizationType = 'Severe'
 		), hypoxia_meas AS (
 			SELECT 
-				H.STUDYPATIENTID, H.RandomizationType,
+				H.StudyPatientID, H.RandomizationType,
 				H.onInvasiveVent AS IV_atRand,
 				H.PaO2_float, H.PaO2_units, 
 				IFNULL(H.FiO2_float, IFNULL(E.FiO2_float, F.FiO2_float)) AS FiO2_float,
 				IFNULL(H.PEEP_float, E.PEEP_float) AS PEEP_float,
 				H.PF_ratio, H.StateHypoxia
 			FROM combined_stateHypoxia H
-			LEFT JOIN closest_PEEPjoinFiO2_pre E ON H.studypatientid = E.studypatientid AND H.RandomizationType = E.RandomizationType
-			LEFT JOIN closest_FiO2_preRand F ON H.studypatientid = F.studypatientid AND H.RandomizationType = F.RandomizationType
+			LEFT JOIN closest_PEEPjoinFiO2_pre E ON H.StudyPatientID = E.StudyPatientID AND H.RandomizationType = E.RandomizationType
+			LEFT JOIN closest_FiO2_preRand F ON H.StudyPatientID = F.StudyPatientID AND H.RandomizationType = F.RandomizationType
 		), HFNC_atRand AS (
 			SELECT StudyPatientID, 'Moderate' AS RandomizationType, if(StudyPatientID IN (
-				SELECT DISTINCT R.STUDYPATIENTID
+				SELECT DISTINCT R.StudyPatientID
 				FROM REMAP.v3RandomizedModerate R
 				LEFT JOIN REMAP.v3OrganSupportInstance O 
-				ON R.STUDYPATIENTID = O.STUDYPATIENTID
+				ON R.StudyPatientID = O.StudyPatientID
 				WHERE O.support_type = 'HFNC'
 					AND O.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc 
 				), 1, 0) AS HFNC_atRand
 			FROM REMAP.v3RandomizedModerate
 			UNION 
 			SELECT StudyPatientID, 'Severe' AS RandomizationType, if(StudyPatientID IN (
-				SELECT DISTINCT R.STUDYPATIENTID
+				SELECT DISTINCT R.StudyPatientID
 				FROM REMAP.v3RandomizedSevere R
 				LEFT JOIN REMAP.v3OrganSupportInstance O 
-				ON R.STUDYPATIENTID = O.STUDYPATIENTID
+				ON R.StudyPatientID = O.StudyPatientID
 				WHERE O.support_type = 'HFNC'
 					AND O.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc 
 				), 1, 0) AS HFNC_atRand
 			FROM REMAP.v3RandomizedSevere
 		), NIV_atRand AS (
 			SELECT StudyPatientID, 'Moderate' AS RandomizationType, if(StudyPatientID IN (
-				SELECT DISTINCT R.STUDYPATIENTID
+				SELECT DISTINCT R.StudyPatientID
 				FROM REMAP.v3RandomizedModerate R
 				LEFT JOIN REMAP.v3OrganSupportInstance O 
-				ON R.STUDYPATIENTID = O.STUDYPATIENTID
+				ON R.StudyPatientID = O.StudyPatientID
 				WHERE O.support_type = 'NIV'
 					AND O.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc 
 				), 1, 0) AS NIV_atRand
 			FROM REMAP.v3RandomizedModerate
 			UNION 
 			SELECT StudyPatientID, 'Severe' AS RandomizationType, if(StudyPatientID IN (
-				SELECT DISTINCT R.STUDYPATIENTID
+				SELECT DISTINCT R.StudyPatientID
 				FROM REMAP.v3RandomizedSevere R
 				LEFT JOIN REMAP.v3OrganSupportInstance O 
-				ON R.STUDYPATIENTID = O.STUDYPATIENTID
+				ON R.StudyPatientID = O.StudyPatientID
 				WHERE O.support_type = 'NIV'
 					AND O.event_utc BETWEEN ADDDATE(R.randomized_utc, INTERVAL -24 HOUR) AND R.randomized_utc 
 				), 1, 0) AS NIV_atRand
@@ -300,8 +300,8 @@ CREATE TABLE REMAP.v3tempBas
 				if(H.IV_atRand = 1 OR N.NIV_atRand = 1, H.PEEP_float, if(C.HFNC_atRand = 1, 0, NULL)) AS PEEP_float,
 				H.PF_ratio, H.StateHypoxia
 			FROM hypoxia_meas H
-			LEFT JOIN HFNC_atRand C ON H.studypatientid = C.studypatientid AND H.RandomizationType = C.RandomizationType
-			LEFT JOIN NIV_atRand N ON H.studypatientid = N.studypatientid AND H.RandomizationType = N.RandomizationType
+			LEFT JOIN HFNC_atRand C ON H.StudyPatientID = C.StudyPatientID AND H.RandomizationType = C.RandomizationType
+			LEFT JOIN NIV_atRand N ON H.StudyPatientID = N.StudyPatientID AND H.RandomizationType = N.RandomizationType
 		)
 		SELECT * FROM corrected_hypoxia_meas
 	;
@@ -413,32 +413,32 @@ CREATE TABLE REMAP.v3_Form2Baseline_sections5to7
 			'<e>' AS Bas_Bicarbonate_mEqL,
 		M_albumin.result_float AS Bas_Albumin
 	FROM REMAP.v3RandomizedModerate R
-	LEFT JOIN REMAP.v3tempHypoxiaVar H ON R.studypatientid = H.studypatientid AND H.randomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBasSupp B ON R.studypatientid = B.studypatientid AND B.randomizationType = 'Moderate'
-	LEFT JOIN COVID_PHI.GCS_scores G ON R.studypatientid = G.studypatientid
-	LEFT JOIN REMAP.v3tempBas M_Cr ON R.studypatientid = M_Cr.studypatientid AND M_Cr.baseline_standard = 'Cr' AND M_Cr.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_Cr_aux ON R.studypatientid = M_Cr_aux.studypatientid AND M_Cr_aux.baseline_standard = 'Cr_aux' AND M_Cr_aux.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_Plt ON R.studypatientid = M_Plt.studypatientid AND M_Plt.baseline_standard = 'Plt' AND M_Plt.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_TBili ON R.studypatientid = M_TBili.studypatientid AND M_TBili.baseline_standard = 'TBili' AND M_TBili.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_TBili_aux ON R.studypatientid = M_TBili_aux.studypatientid AND M_TBili_aux.baseline_standard = 'TBili_aux' AND M_TBili_aux.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_lactate ON R.studypatientid = M_lactate.studypatientid AND M_lactate.baseline_standard = 'lactate' AND M_lactate.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_lactate_aux ON R.studypatientid = M_lactate_aux.studypatientid AND M_lactate_aux.baseline_standard = 'lactate_aux' AND M_lactate_aux.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_GCS ON R.studypatientid = M_GCS.studypatientid AND M_GCS.baseline_standard = 'GCS' AND M_GCS.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_ferritin ON R.studypatientid = M_ferritin.studypatientid AND M_ferritin.baseline_standard = 'Ferritin' AND M_ferritin.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_Ddimer ON R.studypatientid = M_Ddimer.studypatientid AND M_Ddimer.baseline_standard = 'D-dimer' AND M_Ddimer.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_CRP ON R.studypatientid = M_CRP.studypatientid AND M_CRP.baseline_standard = 'C-reactive protein' AND M_CRP.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_ANC ON R.studypatientid = M_ANC.studypatientid AND M_ANC.baseline_standard = 'Neutrophil count' AND M_ANC.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_lymphs ON R.studypatientid = M_lymphs.studypatientid AND M_lymphs.baseline_standard = 'Lymphocyte count' AND M_lymphs.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_troponin ON R.studypatientid = M_troponin.studypatientid AND M_troponin.baseline_standard = 'Troponin' AND M_troponin.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_INR ON R.studypatientid = M_INR.studypatientid AND M_INR.baseline_standard = 'INR' AND M_INR.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_fibrinogen ON R.studypatientid = M_fibrinogen.studypatientid AND M_fibrinogen.baseline_standard = 'Fibrinogen' AND M_fibrinogen.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_temp ON R.studypatientid = M_temp.studypatientid AND M_temp.baseline_standard = 'Temp' AND M_temp.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_HR ON R.studypatientid = M_HR.studypatientid AND M_HR.baseline_standard = 'Heart rate' AND M_HR.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_sys ON R.studypatientid = M_sys.studypatientid AND M_sys.baseline_standard = 'BP_sys' AND M_sys.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_sys_aux ON R.studypatientid = M_sys_aux.studypatientid AND M_sys_aux.baseline_standard = 'BP_sys_aux' AND M_sys_aux.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_RR ON R.studypatientid = M_RR.studypatientid AND M_RR.baseline_standard = 'Respiratory rate' AND M_RR.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_HCO3 ON R.studypatientid = M_HCO3.studypatientid AND M_HCO3.baseline_standard = 'HCO3' AND M_HCO3.RandomizationType = 'Moderate'
-	LEFT JOIN REMAP.v3tempBas M_albumin ON R.studypatientid = M_albumin.studypatientid AND M_albumin.baseline_standard = 'Albumin' AND M_albumin.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempHypoxiaVar H ON R.StudyPatientID = H.StudyPatientID AND H.randomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBasSupp B ON R.StudyPatientID = B.StudyPatientID AND B.randomizationType = 'Moderate'
+	LEFT JOIN COVID_PHI.GCS_scores G ON R.StudyPatientID = G.StudyPatientID
+	LEFT JOIN REMAP.v3tempBas M_Cr ON R.StudyPatientID = M_Cr.StudyPatientID AND M_Cr.baseline_standard = 'Cr' AND M_Cr.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_Cr_aux ON R.StudyPatientID = M_Cr_aux.StudyPatientID AND M_Cr_aux.baseline_standard = 'Cr_aux' AND M_Cr_aux.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_Plt ON R.StudyPatientID = M_Plt.StudyPatientID AND M_Plt.baseline_standard = 'Plt' AND M_Plt.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_TBili ON R.StudyPatientID = M_TBili.StudyPatientID AND M_TBili.baseline_standard = 'TBili' AND M_TBili.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_TBili_aux ON R.StudyPatientID = M_TBili_aux.StudyPatientID AND M_TBili_aux.baseline_standard = 'TBili_aux' AND M_TBili_aux.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_lactate ON R.StudyPatientID = M_lactate.StudyPatientID AND M_lactate.baseline_standard = 'lactate' AND M_lactate.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_lactate_aux ON R.StudyPatientID = M_lactate_aux.StudyPatientID AND M_lactate_aux.baseline_standard = 'lactate_aux' AND M_lactate_aux.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_GCS ON R.StudyPatientID = M_GCS.StudyPatientID AND M_GCS.baseline_standard = 'GCS' AND M_GCS.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_ferritin ON R.StudyPatientID = M_ferritin.StudyPatientID AND M_ferritin.baseline_standard = 'Ferritin' AND M_ferritin.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_Ddimer ON R.StudyPatientID = M_Ddimer.StudyPatientID AND M_Ddimer.baseline_standard = 'D-dimer' AND M_Ddimer.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_CRP ON R.StudyPatientID = M_CRP.StudyPatientID AND M_CRP.baseline_standard = 'C-reactive protein' AND M_CRP.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_ANC ON R.StudyPatientID = M_ANC.StudyPatientID AND M_ANC.baseline_standard = 'Neutrophil count' AND M_ANC.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_lymphs ON R.StudyPatientID = M_lymphs.StudyPatientID AND M_lymphs.baseline_standard = 'Lymphocyte count' AND M_lymphs.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_troponin ON R.StudyPatientID = M_troponin.StudyPatientID AND M_troponin.baseline_standard = 'Troponin' AND M_troponin.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_INR ON R.StudyPatientID = M_INR.StudyPatientID AND M_INR.baseline_standard = 'INR' AND M_INR.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_fibrinogen ON R.StudyPatientID = M_fibrinogen.StudyPatientID AND M_fibrinogen.baseline_standard = 'Fibrinogen' AND M_fibrinogen.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_temp ON R.StudyPatientID = M_temp.StudyPatientID AND M_temp.baseline_standard = 'Temp' AND M_temp.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_HR ON R.StudyPatientID = M_HR.StudyPatientID AND M_HR.baseline_standard = 'Heart rate' AND M_HR.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_sys ON R.StudyPatientID = M_sys.StudyPatientID AND M_sys.baseline_standard = 'BP_sys' AND M_sys.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_sys_aux ON R.StudyPatientID = M_sys_aux.StudyPatientID AND M_sys_aux.baseline_standard = 'BP_sys_aux' AND M_sys_aux.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_RR ON R.StudyPatientID = M_RR.StudyPatientID AND M_RR.baseline_standard = 'Respiratory rate' AND M_RR.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_HCO3 ON R.StudyPatientID = M_HCO3.StudyPatientID AND M_HCO3.baseline_standard = 'HCO3' AND M_HCO3.RandomizationType = 'Moderate'
+	LEFT JOIN REMAP.v3tempBas M_albumin ON R.StudyPatientID = M_albumin.StudyPatientID AND M_albumin.baseline_standard = 'Albumin' AND M_albumin.RandomizationType = 'Moderate'
 UNION  
 	SELECT 
 		R.StudyPatientID, 'Severe' AS aux_RandomizationType, CURRENT_TIMESTAMP as aux_last_update,
@@ -516,33 +516,33 @@ UNION
 			'<e>' AS Bas_Bicarbonate_mEqL,
 		M_albumin.result_float AS Bas_Albumin
 	FROM REMAP.v3RandomizedSevere R
-	LEFT JOIN COVID_PHI.v2ApacheeScoreS A ON R.studypatientid = A.studypatientid
-	LEFT JOIN REMAP.v3tempHypoxiaVar H ON R.studypatientid = H.studypatientid AND H.randomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBasSupp B ON R.studypatientid = B.studypatientid AND B.randomizationType = 'Severe'
-	LEFT JOIN COVID_PHI.GCS_scores G ON R.studypatientid = G.studypatientid
-	LEFT JOIN REMAP.v3tempBas M_Cr ON R.studypatientid = M_Cr.studypatientid AND M_Cr.baseline_standard = 'Cr' AND M_Cr.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_Cr_aux ON R.studypatientid = M_Cr_aux.studypatientid AND M_Cr_aux.baseline_standard = 'Cr_aux' AND M_Cr_aux.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_Plt ON R.studypatientid = M_Plt.studypatientid AND M_Plt.baseline_standard = 'Plt' AND M_Plt.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_TBili ON R.studypatientid = M_TBili.studypatientid AND M_TBili.baseline_standard = 'TBili' AND M_TBili.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_TBili_aux ON R.studypatientid = M_TBili_aux.studypatientid AND M_TBili_aux.baseline_standard = 'TBili_aux' AND M_TBili_aux.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_lactate ON R.studypatientid = M_lactate.studypatientid AND M_lactate.baseline_standard = 'lactate' AND M_lactate.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_lactate_aux ON R.studypatientid = M_lactate_aux.studypatientid AND M_lactate_aux.baseline_standard = 'lactate_aux' AND M_lactate_aux.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_GCS ON R.studypatientid = M_GCS.studypatientid AND M_GCS.baseline_standard = 'GCS' AND M_GCS.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_ferritin ON R.studypatientid = M_ferritin.studypatientid AND M_ferritin.baseline_standard = 'Ferritin' AND M_ferritin.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_Ddimer ON R.studypatientid = M_Ddimer.studypatientid AND M_Ddimer.baseline_standard = 'D-dimer' AND M_Ddimer.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_CRP ON R.studypatientid = M_CRP.studypatientid AND M_CRP.baseline_standard = 'C-reactive protein' AND M_CRP.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_ANC ON R.studypatientid = M_ANC.studypatientid AND M_ANC.baseline_standard = 'Neutrophil count' AND M_ANC.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_lymphs ON R.studypatientid = M_lymphs.studypatientid AND M_lymphs.baseline_standard = 'Lymphocyte count' AND M_lymphs.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_troponin ON R.studypatientid = M_troponin.studypatientid AND M_troponin.baseline_standard = 'Troponin' AND M_troponin.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_INR ON R.studypatientid = M_INR.studypatientid AND M_INR.baseline_standard = 'INR' AND M_INR.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_fibrinogen ON R.studypatientid = M_fibrinogen.studypatientid AND M_fibrinogen.baseline_standard = 'Fibrinogen' AND M_fibrinogen.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_temp ON R.studypatientid = M_temp.studypatientid AND M_temp.baseline_standard = 'Temp' AND M_temp.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_HR ON R.studypatientid = M_HR.studypatientid AND M_HR.baseline_standard = 'Heart rate' AND M_HR.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_sys ON R.studypatientid = M_sys.studypatientid AND M_sys.baseline_standard = 'BP_sys' AND M_sys.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_sys_aux ON R.studypatientid = M_sys_aux.studypatientid AND M_sys_aux.baseline_standard = 'BP_sys_aux' AND M_sys_aux.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_RR ON R.studypatientid = M_RR.studypatientid AND M_RR.baseline_standard = 'Respiratory rate' AND M_RR.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_HCO3 ON R.studypatientid = M_HCO3.studypatientid AND M_HCO3.baseline_standard = 'HCO3' AND M_HCO3.RandomizationType = 'Severe'
-	LEFT JOIN REMAP.v3tempBas M_albumin ON R.studypatientid = M_albumin.studypatientid AND M_albumin.baseline_standard = 'Albumin' AND M_albumin.RandomizationType = 'Severe'	
+	LEFT JOIN COVID_PHI.v2ApacheeScoreS A ON R.StudyPatientID = A.StudyPatientID
+	LEFT JOIN REMAP.v3tempHypoxiaVar H ON R.StudyPatientID = H.StudyPatientID AND H.randomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBasSupp B ON R.StudyPatientID = B.StudyPatientID AND B.randomizationType = 'Severe'
+	LEFT JOIN COVID_PHI.GCS_scores G ON R.StudyPatientID = G.StudyPatientID
+	LEFT JOIN REMAP.v3tempBas M_Cr ON R.StudyPatientID = M_Cr.StudyPatientID AND M_Cr.baseline_standard = 'Cr' AND M_Cr.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_Cr_aux ON R.StudyPatientID = M_Cr_aux.StudyPatientID AND M_Cr_aux.baseline_standard = 'Cr_aux' AND M_Cr_aux.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_Plt ON R.StudyPatientID = M_Plt.StudyPatientID AND M_Plt.baseline_standard = 'Plt' AND M_Plt.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_TBili ON R.StudyPatientID = M_TBili.StudyPatientID AND M_TBili.baseline_standard = 'TBili' AND M_TBili.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_TBili_aux ON R.StudyPatientID = M_TBili_aux.StudyPatientID AND M_TBili_aux.baseline_standard = 'TBili_aux' AND M_TBili_aux.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_lactate ON R.StudyPatientID = M_lactate.StudyPatientID AND M_lactate.baseline_standard = 'lactate' AND M_lactate.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_lactate_aux ON R.StudyPatientID = M_lactate_aux.StudyPatientID AND M_lactate_aux.baseline_standard = 'lactate_aux' AND M_lactate_aux.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_GCS ON R.StudyPatientID = M_GCS.StudyPatientID AND M_GCS.baseline_standard = 'GCS' AND M_GCS.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_ferritin ON R.StudyPatientID = M_ferritin.StudyPatientID AND M_ferritin.baseline_standard = 'Ferritin' AND M_ferritin.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_Ddimer ON R.StudyPatientID = M_Ddimer.StudyPatientID AND M_Ddimer.baseline_standard = 'D-dimer' AND M_Ddimer.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_CRP ON R.StudyPatientID = M_CRP.StudyPatientID AND M_CRP.baseline_standard = 'C-reactive protein' AND M_CRP.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_ANC ON R.StudyPatientID = M_ANC.StudyPatientID AND M_ANC.baseline_standard = 'Neutrophil count' AND M_ANC.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_lymphs ON R.StudyPatientID = M_lymphs.StudyPatientID AND M_lymphs.baseline_standard = 'Lymphocyte count' AND M_lymphs.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_troponin ON R.StudyPatientID = M_troponin.StudyPatientID AND M_troponin.baseline_standard = 'Troponin' AND M_troponin.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_INR ON R.StudyPatientID = M_INR.StudyPatientID AND M_INR.baseline_standard = 'INR' AND M_INR.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_fibrinogen ON R.StudyPatientID = M_fibrinogen.StudyPatientID AND M_fibrinogen.baseline_standard = 'Fibrinogen' AND M_fibrinogen.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_temp ON R.StudyPatientID = M_temp.StudyPatientID AND M_temp.baseline_standard = 'Temp' AND M_temp.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_HR ON R.StudyPatientID = M_HR.StudyPatientID AND M_HR.baseline_standard = 'Heart rate' AND M_HR.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_sys ON R.StudyPatientID = M_sys.StudyPatientID AND M_sys.baseline_standard = 'BP_sys' AND M_sys.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_sys_aux ON R.StudyPatientID = M_sys_aux.StudyPatientID AND M_sys_aux.baseline_standard = 'BP_sys_aux' AND M_sys_aux.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_RR ON R.StudyPatientID = M_RR.StudyPatientID AND M_RR.baseline_standard = 'Respiratory rate' AND M_RR.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_HCO3 ON R.StudyPatientID = M_HCO3.StudyPatientID AND M_HCO3.baseline_standard = 'HCO3' AND M_HCO3.RandomizationType = 'Severe'
+	LEFT JOIN REMAP.v3tempBas M_albumin ON R.StudyPatientID = M_albumin.StudyPatientID AND M_albumin.baseline_standard = 'Albumin' AND M_albumin.RandomizationType = 'Severe'	
 	ORDER BY aux_RandomizationType, StudyPatientID
 	;
 	DROP TABLE REMAP.v3tempBas;
@@ -557,14 +557,14 @@ CREATE TABLE REMAP.v3_Form4Daily_all
 		SELECT SD.* 
 		FROM REMAP.v3StudyDay SD
 		JOIN REMAP.v3IcuStay I 
-		ON SD.StudyPatientID = I.STUDYPATIENTID 
+		ON SD.StudyPatientID = I.StudyPatientID 
 			AND SD.day_start_utc <= I.end_utc 
 			AND SD.day_end_utc >= I.beg_utc
 	), pt_loc_pre AS ( 
 		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT U.unit_type) AS pt_loc_str
 		FROM study_days SD
 		JOIN REMAP.v3UnitStay U
-		ON SD.StudypatientID = U.STUDYPATIENTID
+		ON SD.StudyPatientID = U.StudyPatientID
 			AND SD.day_start_utc <= U.end_utc 
 			AND SD.day_end_utc >= U.beg_utc
 		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
@@ -576,7 +576,7 @@ CREATE TABLE REMAP.v3_Form4Daily_all
 		SELECT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, GROUP_CONCAT(DISTINCT O.support_type) AS support_str
 		FROM study_days SD
 		LEFT JOIN REMAP.v3OrganSupportInstance O
-		ON SD.StudyPatientID = O.studypatientid
+		ON SD.StudyPatientID = O.StudyPatientID
 			AND O.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
 		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
 	), binary_support AS (
@@ -586,10 +586,10 @@ CREATE TABLE REMAP.v3_Form4Daily_all
 			IF(support_str LIKE '%ECMO%', 'Yes', 'No') AS on_ECMO
 	 	FROM support_pre
 	), rrt_support AS (
-		SELECT DISTINCT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, if(R.studypatientid IS NOT NULL, 'Yes', 'No') AS on_RRT
+		SELECT DISTINCT SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType, if(R.StudyPatientID IS NOT NULL, 'Yes', 'No') AS on_RRT
 		FROM study_days SD
 		LEFT JOIN REMAP.v3RRTInstance R
-		ON SD.studypatientid = R.studypatientid
+		ON SD.StudyPatientID = R.StudyPatientID
 			AND R.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
 	), sofa AS (	
 		SELECT SD.StudyPatientID, SD.Study_day, SD.RandomizationType, IFNULL(MAX(C.score), 0) AS CardioSOFA
@@ -603,14 +603,14 @@ CREATE TABLE REMAP.v3_Form4Daily_all
 			IFNULL(LEAST(timestampdiff(HOUR, MIN(O.event_utc),  MAX(O.event_utc)), 24), 0) as IMV_hours
 		FROM study_days SD
 		LEFT JOIN REMAP.v3OrganSupportInstance O
-		ON SD.StudyPatientID = O.studypatientid
+		ON SD.StudyPatientID = O.StudyPatientID
 			AND O.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
 		WHERE O.support_type = 'IMV'
 		GROUP BY SD.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType
 	), airway_doc_pre AS (
 		SELECT P.StudyPatientID, SD.STUDY_DAY, SD.RandomizationType,  if(P.documented_text LIKE '%Tracheostomy%', 'Tracheostomy', 'Endotracheal Tube') AS pt_airway
 		FROM REMAP.v3PhysioStr P
-		JOIN study_days SD ON SD.StudyPatientID = P.STUDYPATIENTID AND P.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
+		JOIN study_days SD ON SD.StudyPatientID = P.StudyPatientID AND P.event_utc BETWEEN SD.day_start_utc AND SD.day_end_utc
 		WHERE P.sub_standard_meaning = 'Airway' OR P.result_str = 'IV device' 
 	), airway_doc AS (
 		SELECT StudyPatientID, Study_day, RandomizationType, GROUP_CONCAT(DISTINCT pt_airway) AS airway_str
@@ -630,7 +630,7 @@ CREATE TABLE REMAP.v3_Form4Daily_all
 		SELECT O.StudyPatientID, O.Study_day, O.RandomizationType, O.PF_ratio, O.PaO2_float, O.FiO2_float, 
 			MAX(O.PEEP_float) AS PEEP_float, O.PaO2_utc
 		FROM oxygenation_pre O
-		JOIN min_pf M ON O.studypatientid = M.studypatientid AND O.study_day = M.study_day AND O.randomizationType = M.randomizationType
+		JOIN min_pf M ON O.StudyPatientID = M.StudyPatientID AND O.study_day = M.study_day AND O.randomizationType = M.randomizationType
 		WHERE O.pf_ratio = M.min_pf
 		GROUP BY O.StudyPatientID, O.Study_day, O.RandomizationType, O.PF_ratio, O.PaO2_float, O.FiO2_float, O.PaO2_utc 
 	), FiO2_pre AS ( # find highest fio2
@@ -652,7 +652,7 @@ CREATE TABLE REMAP.v3_Form4Daily_all
 	), fio2_peep AS (
 		SELECT F.StudyPatientID, F.Study_day, F.RandomizationType, F.max_fio2 AS FiO2_float, MAX(P.PEEP_float) AS PEEP_float
 		FROM max_fio2 F
-		LEFT JOIN peep_pre P ON P.StudyPatientID = F.studypatientid AND P.study_day = F.study_day AND P.randomizationType = F.randomizationType
+		LEFT JOIN peep_pre P ON P.StudyPatientID = F.StudyPatientID AND P.study_day = F.study_day AND P.randomizationType = F.randomizationType
 		WHERE P.fio2_float = F.max_fio2 OR P.fio2_float IS NULL 
 		GROUP BY F.StudyPatientID, F.Study_day, F.RandomizationType, F.max_fio2 
 	)
@@ -702,10 +702,10 @@ WITH day_14 AS (
 	FROM (
 		REMAP.v3StudyDay SD
 		JOIN (
-			SELECT REMAP.v3RandomizedSevere.STUDYPATIENTID AS StudyPatientID
+			SELECT REMAP.v3RandomizedSevere.StudyPatientID AS StudyPatientID
 			FROM REMAP.v3RandomizedSevere
-			WHERE REMAP.v3RandomizedSevere.STUDYPATIENTID in (
-				SELECT REMAP.v3RandomizedModerate.STUDYPATIENTID
+			WHERE REMAP.v3RandomizedSevere.StudyPatientID in (
+				SELECT REMAP.v3RandomizedModerate.StudyPatientID
 				FROM REMAP.v3RandomizedModerate) IS FALSE) R ON SD.StudyPatientID = R.StudyPatientID )
 	WHERE ((SD.STUDY_DAY = 14) AND (SD.RandomizationType = 'Severe'))
 	UNION
@@ -719,7 +719,7 @@ WITH day_14 AS (
 		'First' AS randomization_count
 	FROM (
 		REMAP.v3StudyDay SD
-		JOIN REMAP.v3RandomizedModerate R ON SD.StudyPatientID = R.STUDYPATIENTID)
+		JOIN REMAP.v3RandomizedModerate R ON SD.StudyPatientID = R.StudyPatientID)
 	WHERE ((SD.STUDY_DAY = 14) AND (SD.RandomizationType = 'Moderate')) 
 	UNION
 	SELECT 
@@ -733,10 +733,10 @@ WITH day_14 AS (
 	FROM (
 		REMAP.v3StudyDay SD
 		JOIN (
-			SELECT REMAP.v3RandomizedSevere.STUDYPATIENTID AS StudyPatientID
+			SELECT REMAP.v3RandomizedSevere.StudyPatientID AS StudyPatientID
 			FROM REMAP.v3RandomizedSevere
-			WHERE REMAP.v3RandomizedSevere.STUDYPATIENTID in (
-				SELECT REMAP.v3RandomizedModerate.STUDYPATIENTID
+			WHERE REMAP.v3RandomizedSevere.StudyPatientID in (
+				SELECT REMAP.v3RandomizedModerate.StudyPatientID
 				FROM REMAP.v3RandomizedModerate)
 		) R ON SD.StudyPatientID = R.StudyPatientID)
 	WHERE ((SD.STUDY_DAY = 14) AND (SD.RandomizationType = 'Severe'))
@@ -753,44 +753,44 @@ WITH day_14 AS (
 	), has_ECMO AS (
 		SELECT F.StudyPatientID AS StudyPatientID,F.randomization_count AS randomization_count,1 AS has_ECMO
 		FROM (REMAP.v3OrganSupportInstance O
-		JOIN with_ranges F ON(((O.studypatientid = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
+		JOIN with_ranges F ON(((O.StudyPatientID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
 		WHERE (O.support_type = 'ECMO')
-		GROUP BY O.studypatientid,F.randomization_count
+		GROUP BY O.StudyPatientID,F.randomization_count
 	), has_IMV AS (
 		SELECT F.StudyPatientID AS StudyPatientID,F.randomization_count AS randomization_count,1 AS has_IMV
 		FROM (REMAP.v3OrganSupportInstance O
-		JOIN with_ranges F ON(((O.studypatientid = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
+		JOIN with_ranges F ON(((O.StudyPatientID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
 		WHERE (O.support_type = 'IMV')
-		GROUP BY O.studypatientid,F.randomization_count
+		GROUP BY O.StudyPatientID,F.randomization_count
 	), has_NIV AS (
 		SELECT F.StudyPatientID AS StudyPatientID,F.randomization_count AS randomization_count,1 AS has_NIV
 		FROM (REMAP.v3OrganSupportInstance O
-		JOIN with_ranges F ON(((O.studypatientid = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
+		JOIN with_ranges F ON(((O.StudyPatientID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
 		WHERE (O.support_type = 'NIV')
-		GROUP BY O.studypatientid,F.randomization_count
+		GROUP BY O.StudyPatientID,F.randomization_count
 	), has_Vaso AS (
 		SELECT F.StudyPatientID AS StudyPatientID,F.randomization_count AS randomization_count,1 AS has_Vaso
 		FROM (REMAP.v3OrganSupportInstance O
-		JOIN with_ranges F ON(((O.studypatientid = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
+		JOIN with_ranges F ON(((O.StudyPatientID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
 		WHERE (O.support_type = 'Vasopressor')
-		GROUP BY O.studypatientid,F.randomization_count
+		GROUP BY O.StudyPatientID,F.randomization_count
 	), has_RRT AS (
 		SELECT F.StudyPatientID AS StudyPatientID,F.randomization_count AS randomization_count,1 AS has_RRT
 		FROM (REMAP.v3RRTInstance O
-		JOIN with_ranges F ON(((O.studypatientid = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
-		GROUP BY O.studypatientid,F.randomization_count
+		JOIN with_ranges F ON(((O.StudyPatientID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
+		GROUP BY O.StudyPatientID,F.randomization_count
 	), has_relaxedHF AS (
 		SELECT F.StudyPatientID AS StudyPatientID,F.randomization_count AS randomization_count,1 AS has_relaxedHF
 		FROM (REMAP.v3SupplementalOxygenInstance O
-		JOIN with_ranges F ON(((O.STUDYPATIENTID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
+		JOIN with_ranges F ON(((O.StudyPatientID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
 		WHERE (O.support_type = 'relaxedHF')
-		GROUP BY O.STUDYPATIENTID,F.randomization_count
+		GROUP BY O.StudyPatientID,F.randomization_count
 	), has_suppO2 AS (
 		SELECT F.StudyPatientID AS StudyPatientID,F.randomization_count AS randomization_count,1 AS has_suppO2
 		FROM (REMAP.v3SupplementalOxygenInstance O
-		JOIN with_ranges F ON(((O.STUDYPATIENTID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
+		JOIN with_ranges F ON(((O.StudyPatientID = F.StudyPatientID) AND (O.event_utc BETWEEN F.day_14_start_utc AND F.day_14_end_utc))))
 		WHERE (O.support_type <> 'relaxedHF')
-		GROUP BY O.STUDYPATIENTID,F.randomization_count
+		GROUP BY O.StudyPatientID,F.randomization_count
 	), deceasedBy14 AS (
 		SELECT WR.StudyPatientID, WR.randomization_count, if(H.DeceasedAtDischarge = 'Yes', 1, 0) AS Deceased
 		FROM REMAP.v3Hospitalization H
@@ -844,7 +844,8 @@ WITH day_14 AS (
 		pre_result.day_14_end_utc AS day_end_utc
 	FROM pre_result
 	ORDER BY pre_result.StudyPatientID, pre_result.randomization_count, pre_result.RandomizationType
-; # Select * FROM REMAP.v3Day14Outcomes
+; 
+ Select * FROM REMAP.v3Day14Outcomes;
 
 
 /* ************************************** future ************************************** */
