@@ -551,7 +551,7 @@ WITH organ_support_stay AS ( # identify ICU stays (including Stepdown/Pandemic I
 		IF(S.unit_type = 'ICU', S.beg_utc, GREATEST(MIN(O.event_utc), S.beg_utc)) AS beg_utc,
 		IF(S.unit_type = 'ED', 1, 0) AS includes_EDUnit, beg_utc AS org_beg_utc
 	FROM pre_start_of_a_stay S
-	JOIN REMAP.v3OrganSupportInstance O ON S.StudyPatientid = O.StudyPatientid 
+	LEFT JOIN REMAP.v3OrganSupportInstance O ON S.StudyPatientid = O.StudyPatientid 
 		AND O.event_utc > ADDDATE(S.beg_utc, INTERVAL -12 HOUR)
 	GROUP BY  S.studyPatientid, S.loc_order_unit_start, S.beg_utc, S.unit_type
 	), end_of_a_stay AS (  # identify the end of each continuous ICU stay, i.e., no unit within 12 hr after
