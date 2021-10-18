@@ -196,7 +196,7 @@ NAVIGATION:
 		SD.last_update, SD.RandomizationType,
 		CV.display, admin_dosage, CVU.display AS units, CVR.DISPLAY AS route
 	FROM 
-		(SELECT 	M.encntr_id, O.event_utc AS vaso_dt_utc, M.event_cd, M.admin_dosage, M.dosage_unit_cd, M.admin_route_cd
+		(SELECT 	M.encntr_id, O.event_utc AS vaso_dt_utc, M.event_cd, M.admin_dosage, M.dosage_unit_cd, M.admin_route_cd, O.StudyPatientID
 		FROM REMAP.v3OrganSupportInstance O
 		JOIN CT_DATA.MAR_AD M ON O.event_id = M.EVENT_ID 
 		WHERE support_type = 'Vasopressor'
@@ -204,8 +204,8 @@ NAVIGATION:
 		JOIN CT_DATA.CODE_VALUE CV ON (vaso.event_cd = CV.code_value) 
 		JOIN CT_DATA.CODE_VALUE CVU ON (vaso.dosage_unit_cd = CVU.code_value) 
 		JOIN CT_DATA.CODE_VALUE CVR ON (vaso.admin_route_cd = CVR.code_value)
-		JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (vaso.encntr_id = EIA.encntr_id)
-		JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId AND vaso_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
+		JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (vaso.StudyPatientID = EIA.StudyPatientID)
+		JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientID = SD.StudyPatientID AND vaso_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 	WHERE 
 		vaso_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)			
 	; 
@@ -222,7 +222,7 @@ NAVIGATION:
 		SD.last_update, SD.RandomizationType,
 		CV.display, admin_dosage, CVU.display AS units, CVR.DISPLAY AS route
 	FROM 
-		(SELECT 	M.encntr_id, O.event_utc AS vaso_dt_utc, M.event_cd, M.admin_dosage, M.dosage_unit_cd, M.admin_route_cd
+		(SELECT 	M.encntr_id, O.event_utc AS vaso_dt_utc, M.event_cd, M.admin_dosage, M.dosage_unit_cd, M.admin_route_cd, O.StudyPatientID
 		FROM REMAP.v3OrganSupportInstance O
 		JOIN CT_DATA.MAR_AD M ON O.event_id = M.EVENT_ID 
 		WHERE support_type = 'Vasopressor'
@@ -230,7 +230,7 @@ NAVIGATION:
 		JOIN CT_DATA.CODE_VALUE CV ON (vaso.event_cd = CV.code_value) 
 		JOIN CT_DATA.CODE_VALUE CVU ON (vaso.dosage_unit_cd = CVU.code_value) 
 		JOIN CT_DATA.CODE_VALUE CVR ON (vaso.admin_route_cd = CVR.code_value)
-		JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (vaso.encntr_id = EIA.encntr_id)
+		JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (vaso.StudyPatientID = EIA.StudyPatientID)
 		JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId AND vaso_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 	WHERE 
 		vaso_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)				
@@ -250,7 +250,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
 			WHERE support_type = 'HFNC'
 			) AS device
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (device.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (device.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId 
 				AND hfnc_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
@@ -271,7 +271,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
 			WHERE support_type = 'HFNC'
 			) AS device
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (device.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (device.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId 
 				AND hfnc_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
@@ -292,7 +292,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON SO.event_id = P.EVENT_ID 
 			WHERE support_type = 'relaxedHF'
 			) AS device
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (device.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (device.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId 
 				AND hfnc_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
@@ -314,7 +314,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON SO.event_id = P.EVENT_ID 
 			WHERE support_type = 'relaxedHF'
 			) AS device
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (device.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (device.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId 
 				AND hfnc_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
@@ -337,7 +337,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
 			WHERE support_type = 'ECMO'
 			) AS CEP
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEP.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEP.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId AND ecmo_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			ecmo_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)	
@@ -359,7 +359,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
 			WHERE support_type = 'ECMO'
 			) AS CEP
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEP.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEP.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId AND ecmo_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			ecmo_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)			
@@ -384,7 +384,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID
 			WHERE support_type = 'NIV'
 			) AS CEP
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEP.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEP.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId AND mechSupport_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			mechSupport_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)			
@@ -423,7 +423,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID
 			WHERE support_type = 'NIV'
 		) AS CEP
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEP.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEP.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId AND mechSupport_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			mechSupport_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)			
@@ -462,7 +462,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
 			WHERE support_type = 'IMV'
 			) AS CEP
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEP.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEP.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId AND vent_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			vent_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)		
@@ -487,7 +487,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_PHYSIO P ON O.event_id = P.EVENT_ID 
 			WHERE support_type = 'IMV'
 			) AS CEP
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEP.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEP.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId AND vent_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			vent_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)		
@@ -514,7 +514,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_INTAKE_OUTPUT_RESULT I ON O.event_id = I.EVENT_ID
 			WHERE documented_source = 'IO'  
 			) AS CEIO
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEIO.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsM EIA ON (CEIO.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayM SD ON (EIA.StudyPatientId = SD.StudyPatientId AND rrt_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			rrt_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)	
@@ -541,7 +541,7 @@ NAVIGATION:
 			JOIN CT_DATA.CE_INTAKE_OUTPUT_RESULT I ON O.event_id = I.EVENT_ID
 			WHERE documented_source = 'IO' 
 			) AS CEIO
-			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEIO.encntr_id = EIA.encntr_id)
+			JOIN COVID_PHI.v2EnrolledIcuAdmitsS EIA ON (CEIO.StudyPatientID = EIA.StudyPatientID)
 			JOIN COVID_PHI.v2StudyDayS SD ON (EIA.StudyPatientId = SD.StudyPatientId AND rrt_dt_utc BETWEEN SD.day_start_utc AND SD.day_end_utc)
 		WHERE 
 			rrt_dt_utc BETWEEN date_add(EIA.start_dt_utc, INTERVAL -24 HOUR) AND date_add(EIA.end_dt_utc, INTERVAL 24 HOUR)	
