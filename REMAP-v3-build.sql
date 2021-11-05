@@ -362,7 +362,7 @@ CREATE TABLE REMAP.v3RandomizedSevere
 		JOIN (SELECT * 
 			FROM REMAP.v3OrganSupportInstance 
 			) AS O ON L.studypatientid = O.studypatientid
-		LEFT JOIN COVID_SUPPLEMENT.UNIT_DESCRIPTION_ARCHIVE U ON U.unit_code = L.LOC_NURSE_UNIT_CD
+		LEFT JOIN COVID_SUPPLEMENT.UNIT_DESCRIPTION_ARCHIVE U ON U.unit_code = L.LOC_NURSE_UNIT_CD AND L.beg_utc BETWEEN U.active_start_date AND U.active_end_date
 		WHERE O.event_utc BETWEEN ADDDATE(L.beg_utc, INTERVAL -12 HOUR) AND L.end_utc
 			AND unit_type IN ('ICU', 'Stepdown')
 			AND L.loc_order >= S.loc_order
@@ -468,7 +468,7 @@ DROP TABLE REMAP.v3UnitStay;
 			JOIN REMAP.v3OrganSupportInstance O ON L.studypatientid = O.studypatientid
 			WHERE O.event_utc BETWEEN L.beg_utc AND L.end_utc
 			) AS L2 ON L1.studypatientid = L2.studypatientid AND L1.loc_order = L2.loc_order
-		LEFT JOIN COVID_SUPPLEMENT.UNIT_DESCRIPTION_ARCHIVE U ON U.unit_code = L1.LOC_NURSE_UNIT_CD
+		LEFT JOIN COVID_SUPPLEMENT.UNIT_DESCRIPTION_ARCHIVE U ON U.unit_code = L1.LOC_NURSE_UNIT_CD AND L1.beg_utc BETWEEN U.active_start_date AND U.active_end_date
 		LEFT JOIN CT_DATA.CODE_VALUE CV ON CV.CODE_VALUE = L1.LOC_NURSE_UNIT_CD 
 	;
 	## find contiguous unit stays ##
