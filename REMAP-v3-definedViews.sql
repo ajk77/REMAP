@@ -4,7 +4,7 @@ created by King
 
 NAVIGATION: 
 	VIEWS
-	REMAP.v3ViewCernerEnrolledPerson2 -> FROM CT_DATA.ENCOUNTER_ALL, CT_DATA.ENCOUNTER_PHI, CA_DB.ENROLLMENT_FORM
+	REMAP.v3ViewCernerEnrolledPerson2 -> FROM CT_DATA.ENCOUNTER_ALL, REMAP.v3ModifiedENCOUNTER_PHI, CA_DB.ENROLLMENT_FORM
 	REMAPe.ve3ViewEpicEnrolledPerson2 -> FROM COVID_PINNACLE.PAT_ENC, COVID_PINNACLE.PATIENT
 	REMAP.v3EnrolledHospitalization -> FROM REMAP.v3locOrder
 	REMAP.v3RandomizationMatchingWithV2 -> FROM COVID_PHI.v2EnrolledPerson, REMAP.v3RandomizedModerate,REMAP.v3RandomizedSevere 
@@ -13,12 +13,12 @@ NAVIGATION:
 	REMAPe.ve2ApacheeScoreS -> FROM REMAPe.ve2ApacheeVarS, REMAPe.ve2EnrolledPerson, COVID_PHI.GCS_scores, CA_DB.INTAKE_FORM
 	REMAPe.ve2ApacheeDebug -> FROM apachee_baseline
 
-	ARCHIVED TABLE CREATIONS
+	ARCHIVED TABLE and VIEW CREATIONS
 	/ REMAP.HistoricRandomizationTimes /
 	/ REMAP.NIVexclusion /
 	/ REMAP.ManualChange_StartOfHospitalization_utc /
+	/ REMAP.ManualChange_Encounter_FIN /
 */
-
 
 /* corrected to allow for a pt to be enrolled more than 1. And to trust the enrollment_form to assign the right pt id */
 CREATE OR REPLACE VIEW REMAP.v3ViewCernerEnrolledPerson2 AS
@@ -32,14 +32,14 @@ CREATE OR REPLACE VIEW REMAP.v3ViewCernerEnrolledPerson2 AS
 	   all_screendates.REGIMEN
 	FROM
 	   CT_DATA.ENCOUNTER_ALL as EA
-	   LEFT JOIN CT_DATA.ENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
+	   LEFT JOIN REMAP.v3ModifiedENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
 	   LEFT JOIN CA_DB.ENROLLMENT_FORM as EF on EF.FIN = E.FIN
 	   JOIN (
 			# get person_id for each enrolled person.  				
 			SELECT EF.STUDYPATIENTID, EF.screendate_utc, EF.REGIMEN, EA.PERSON_ID
 			FROM (SELECT STUDYPATIENTID, screendate_utc, REGIMEN, FIN 
 				FROM CA_DB.ENROLLMENT_FORM WHERE ENROLLMENTRESULT = 'ENROLLED' AND STUDYPATIENTID IS NOT NULL) as EF
-			JOIN CT_DATA.ENCOUNTER_PHI EP ON EF.FIN = EP.fin
+			JOIN REMAP.v3ModifiedENCOUNTER_PHI EP ON EF.FIN = EP.fin
 			JOIN CT_DATA.ENCOUNTER_ALL EA ON EP.encntr_id = EA.encntr_id
 		) AS all_screendates ON EA.PERSON_ID = all_screendates.PERSON_ID	
 	WHERE E.FIN IS NOT NULL 
@@ -317,3 +317,16 @@ DROP TABLE REMAP.ManualChange_StartOfHospitalization_utc;
 	INSERT INTO REMAP.ManualChange_StartOfHospitalization_utc (StudyPatientID, StartOfHospitalization_utc, row_comment) 
 	VALUES ('0400100001', '2020-04-01 12:00:00', 'AJK: replaced value b/c orginial val was 12 hours too soon.');
  */
+ 
+ /*
+CREATE TABLE REMAP.ManualChange_Encounter_FIN (
+	upk INT NOT NULL AUTO_INCREMENT, 
+	ENCNTR_ID VARCHAR(200),
+	FIN VARCHAR(200), 
+	insert_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	row_comment VARCHAR(256), 
+	PRIMARY KEY (upk)
+);
+
+
+*/

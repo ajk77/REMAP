@@ -4,6 +4,7 @@ created by AndrewJKing.com | @AndrewsJourney
 
 NAVIGATION: 
 	TABLE BUILD ORDER 
+	REMAP.v3ModifiedENCOUNTER_PHI -> FROM CT_DATA.ENCOUNTER_PHI, REMAP.ManualChange_Encounter_FIN
 	REMAP.v3Participant -> FROM REMAP.v3ViewCernerEnrolledPerson2
 	REMAP.v3IdMap -> FROM REMAP.v3ViewCernerEnrolledPerson2, CT_DATA.ENCOUNTER_ALL, CT_DATA.CODE_VALUE  
 	REMAP.v3LocOrder -> FROM CT_DATA.ENCNTR_LOC_HIST, REMAP.v3IdMap
@@ -41,6 +42,15 @@ Dependencies
 >REMAP.v3ViewCernerEnrolledPerson2 from REMAP-v3-definedViews.sql
 >to_utc(), to_float(), get_prefix(), get_postfix(), get_physio_result_str() from REMAP.v3-definedFunctions.sql
 */
+
+### correct updated FINs ###
+DROP TABLE REMAP.v3ModifiedENCOUNTER_PHI;
+CREATE TABLE REMAP.v3ModifiedENCOUNTER_PHI  
+	SELECT EP.ENCNTR_ID, EP.BIRTH_DT_TM, EP.NAME_FIRST, EP.NAME_LAST, IFNULL(MC.FIN, EP.FIN) AS FIN, EP.MRN 
+	FROM CT_DATA.ENCOUNTER_PHI EP
+	LEFT JOIN REMAP.ManualChange_Encounter_FIN MC ON EP.ENCNTR_ID = MC.ENCNTR_ID
+	WHERE EP.MRN IS NOT NULL
+;
 
 ### pull studypateintids from view ###
 DROP TABLE REMAP.v3Participant;
