@@ -958,10 +958,10 @@ CREATE TABLE REMAP.v3Hospitalization
 		H.StudyPatientID, 
 		H.StartOfHospitalization_utc,
 		H.EndOfHospitalization_utc,
-		IF (EF.DeathDate IS NOT NULL 
-			OR DeceasedDisposition.StudyPatientID IS NOT NULL 
-			OR VS.DeathDate <= H.EndOfHospitalization_utc,
-			'Yes', 'No') AS DeceasedAtDischarge
+		IF ((EF.DeathDate IS NOT NULL 
+			  AND VS.DeathDate <= H.EndOfHospitalization_utc)
+			  OR DeceasedDisposition.StudyPatientID IS NOT NULL,
+			  'Yes', 'No') AS DeceasedAtDischarge
 	FROM hospitalization H
 	LEFT JOIN
 		(SELECT StudyPatientID, DeathDate 
