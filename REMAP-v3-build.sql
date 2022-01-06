@@ -225,6 +225,11 @@ CREATE TABLE REMAP.tempv3Physio
 		FROM CT_DATA.CE_PHYSIO
 		WHERE encntr_id IN (SELECT encntr_id FROM REMAP.v3IdMap)
 			AND EVENT_CD IN (SELECT source_cv FROM COVID_SUPPLEMENT.CV_STANDARDIZATION WHERE source_table IN ('CE_PHYSIO'))
+	UNION  # grab CE_LAB values that should be Physio
+   SELECT DISTINCT EVENT_ID, ENCNTR_ID, EVENT_CD, EVENT_END_DT_TM, RESULT_VAL, result_units_cd, NORMAL_LOW, NORMAL_HIGH
+      FROM CT_DATA.CE_LAB
+      WHERE encntr_id IN (SELECT encntr_id FROM REMAP.v3IdMap)
+         AND EVENT_CD IN (621140161, 676173101, 3172659610, 5096472903)
 	;
 	## the table for numeric physio value ##
 	DROP TABLE REMAP.v3Physio;
@@ -958,10 +963,10 @@ CREATE TABLE REMAP.v3Hospitalization
 		H.StudyPatientID, 
 		H.StartOfHospitalization_utc,
 		H.EndOfHospitalization_utc,
-		IF ((EF.DeathDate IS NOT NULL 
-			  AND VS.DeathDate <= H.EndOfHospitalization_utc)
-			  OR DeceasedDisposition.StudyPatientID IS NOT NULL,
-			  'Yes', 'No') AS DeceasedAtDischarge
+      IF ((EF.DeathDate IS NOT NULL 
+            AND VS.DeathDate <= H.EndOfHospitalization_utc)
+            OR DeceasedDisposition.StudyPatientID IS NOT NULL,
+            'Yes', 'No') AS DeceasedAtDischarge
 	FROM hospitalization H
 	LEFT JOIN
 		(SELECT StudyPatientID, DeathDate 
