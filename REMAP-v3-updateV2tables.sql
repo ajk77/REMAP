@@ -951,7 +951,25 @@ CREATE TABLE COVID_PHI.v2ApacheeVarS
 ; #SELECT * FROM COVID_PHI.v2ApacheeVarS;
 	
 
+/* Update Chris' tables */
+INSERT INTO COVID_PHI.RandomizationTimesModerate (StudyPatientID, DateTimeRandModerate)
+SELECT STUDYPATIENTID AS StudyPatientID, randomized_utc AS DateTimeRandModerate
+FROM REMAP.v3RandomizedModerate
+WHERE StudyPatientID NOT IN (SELECT StudyPatientID FROM COVID_PHI.RandomizationTimesModerate)
+ORDER BY StudyPatientID;
+
+INSERT INTO COVID_PHI.RandomizationTimesSevere (StudyPatientID, DateTimeRandSevere)
+SELECT STUDYPATIENTID AS StudyPatientID, randomized_utc AS DateTimeRandSevere
+FROM REMAP.v3RandomizedSevere
+WHERE StudyPatientID NOT IN (SELECT StudyPatientID FROM COVID_PHI.RandomizationTimesSevere)
+      AND StudyPatientID NOT IN (SELECT STUDYPATIENTID FROM REMAP.v3RandomizedModerate)
+ORDER BY StudyPatientID;
+
+
+
 SELECT 'updatev2tables is finished' AS Progress;
+
+
 
 
 /*
