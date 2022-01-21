@@ -5,8 +5,9 @@ created by AndrewJKing.com | @AndrewsJourney
 NAVIGATION: 
 	TABLE BUILD ORDER 
 	REMAP.v3ModifiedENCOUNTER_PHI -> FROM CT_DATA.ENCOUNTER_PHI, REMAP.ManualChange_Encounter_FIN
-	REMAP.v3Participant -> FROM REMAP.v3ViewCernerEnrolledPerson2
-	REMAP.v3IdMap -> FROM REMAP.v3ViewCernerEnrolledPerson2, CT_DATA.ENCOUNTER_ALL, CT_DATA.CODE_VALUE  
+	REMAP.v3CernerEnrolledPerson2 -> FROM CT_DATA.ENCOUNTER_ALL, REMAP.v3ModifiedENCOUNTER_PHI, CA_DATA.ENROLLED; (replaces REMAP.v3ViewCernerEnrolledPerson2)
+	REMAP.v3Participant -> FROM REMAP.v3CernerEnrolledPerson2
+	REMAP.v3IdMap -> FROM REMAP.v3CernerEnrolledPerson2, CT_DATA.ENCOUNTER_ALL, CT_DATA.CODE_VALUE  
 	REMAP.v3LocOrder -> FROM CT_DATA.ENCNTR_LOC_HIST, REMAP.v3IdMap
 	REMAP.v3tempLastEvent -> FROM for determing undocumented discharge >> used for updating REMAP.v3LocOrder to close off open loc entries
 	REMAP.v3Lab -> FROM CT_DATA.CE_LAB, REMAP.v3IdMap, COVID_SUPPLEMENT.CV_STANDARDIZATION, CT_DATA.CODE_VALUE
@@ -43,6 +44,7 @@ Dependencies
 >to_utc(), to_float(), get_prefix(), get_postfix(), get_physio_result_str() from REMAP.v3-definedFunctions.sql
 */
 
+
 ### correct updated FINs ###
 DROP TABLE REMAP.v3ModifiedENCOUNTER_PHI;
 CREATE TABLE REMAP.v3ModifiedENCOUNTER_PHI  
@@ -52,11 +54,47 @@ CREATE TABLE REMAP.v3ModifiedENCOUNTER_PHI
 	WHERE EP.MRN IS NOT NULL
 ;
 
+### create CernerEnrolledPerson table 
+DROP TABLE REMAP.v3CernerEnrolledPerson2; 
+CREATE TABLE REMAP.tempENCOUNTERS
+	SELECT 	   
+	 	EA.PERSON_ID, 
+		EA.ENCNTR_ID,
+	   all_screendates.screendate_utc,
+	   all_screendates.STUDYPATIENTID,
+	   all_screendates.REGIMEN
+	FROM  
+	   (
+			# get person_id for each enrolled person.  				
+			SELECT EF.STUDYPATIENTID, EF.screendate_utc, EF.REGIMEN, EA.PERSON_ID
+			FROM (SELECT STUDYPATIENTID, screendate_utc, REGIMEN, FIN 
+				FROM CA_DATA.ENROLLED WHERE ENROLLMENTRESULT = 'ENROLLED' AND STUDYPATIENTID IS NOT NULL) as EF
+			JOIN REMAP.v3ModifiedENCOUNTER_PHI EP ON EF.FIN = LPAD(EP.fin, 13, '0')
+			JOIN CT_DATA.ENCOUNTER_ALL EA ON EP.encntr_id = EA.encntr_id
+		) AS all_screendates
+		LEFT JOIN CT_DATA.ENCOUNTER_ALL as EA  ON EA.PERSON_ID = all_screendates.PERSON_ID
+; 
+CREATE TABLE REMAP.v3CernerEnrolledPerson2 
+	SELECT
+	   TE.PERSON_ID,
+	   E.MRN,
+	   E.ENCNTR_ID,
+	   E.FIN,
+	   TE.screendate_utc,
+	   TE.STUDYPATIENTID,
+	   TE.REGIMEN
+	FROM
+		REMAP.tempENCOUNTERS AS TE
+	   LEFT JOIN REMAP.v3ModifiedENCOUNTER_PHI as E on E.ENCNTR_ID = TE.ENCNTR_ID
+	WHERE E.FIN IS NOT NULL 
+;
+DROP TABLE REMAP.tempENCOUNTERS;
+
 ### pull studypateintids from view ###
 DROP TABLE REMAP.v3Participant;
 CREATE TABLE REMAP.v3Participant
 	SELECT DISTINCT studypatientid, screendate_utc, regimen, MRN, PERSON_ID, 'Cerner' AS source_system
-	FROM REMAP.v3ViewCernerEnrolledPerson2
+	FROM REMAP.v3CernerEnrolledPerson2
 	ORDER BY studypatientid;
 	
 
@@ -64,7 +102,7 @@ CREATE TABLE REMAP.v3Participant
 DROP TABLE REMAP.v3IdMap;	
 CREATE TABLE REMAP.v3IdMap
 	SELECT DISTINCT V.encntr_id, fin, studypatientid, CV.display AS encounter_type
-	FROM REMAP.v3ViewCernerEnrolledPerson2 V
+	FROM REMAP.v3CernerEnrolledPerson2 V
 	JOIN CT_DATA.ENCOUNTER_ALL EA ON V.ENCNTR_ID = EA.ENCNTR_ID
 	JOIN CT_DATA.CODE_VALUE CV ON EA.ENCNTR_TYPE_CD = CV.code_value
 	WHERE CV.display IN ('Inpatient', 'Emergency', 'Inpt Maternity', 'Neuro Inpatient', 'Direct Obs')

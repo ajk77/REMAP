@@ -4,11 +4,11 @@ created by King
 
 NAVIGATION: 
 	VIEWS
-	REMAP.v3ViewCernerEnrolledPerson2 -> FROM CT_DATA.ENCOUNTER_ALL, REMAP.v3ModifiedENCOUNTER_PHI, CA_DB.ENROLLMENT_FORM
+	***DEPRECIATED***REMAP.v3ViewCernerEnrolledPerson2 -> FROM CT_DATA.ENCOUNTER_ALL, REMAP.v3ModifiedENCOUNTER_PHI, CA_DB.ENROLLMENT_FORM
 	REMAPe.ve3ViewEpicEnrolledPerson2 -> FROM COVID_PINNACLE.PAT_ENC, COVID_PINNACLE.PATIENT
 	REMAP.v3EnrolledHospitalization -> FROM REMAP.v3locOrder
 	REMAP.v3RandomizationMatchingWithV2 -> FROM COVID_PHI.v2EnrolledPerson, REMAP.v3RandomizedModerate,REMAP.v3RandomizedSevere 
-	COVID_PHI.v2ApacheeScoreS -> FROM COVID_PHI.v2ApacheeVarS, COVID_PHI.v2EnrolledPerson, COVID_PHI.GCS_scores, CA_DB.INTAKE_FORM
+	COVID_PHI.v2ApacheeScoreS -> FROM COVID_PHI.v2ApacheeVarS, COVID_PHI.v2EnrolledPerson, COVID_PHI.GCS_scores, CA_DATA.INTAKE
 	COVID_PHI.v2ApacheeDebug -> FROM apachee_baseline
 	REMAPe.ve2ApacheeScoreS -> FROM REMAPe.ve2ApacheeVarS, REMAPe.ve2EnrolledPerson, COVID_PHI.GCS_scores, CA_DB.INTAKE_FORM
 	REMAPe.ve2ApacheeDebug -> FROM apachee_baseline
@@ -21,29 +21,38 @@ NAVIGATION:
 */
 
 /* corrected to allow for a pt to be enrolled more than 1. And to trust the enrollment_form to assign the right pt id */
+/* ***DEPRECIATED***
 CREATE OR REPLACE VIEW REMAP.v3ViewCernerEnrolledPerson2 AS
 	SELECT
-	   EA.PERSON_ID,
+	   enrolled_encounters.PERSON_ID,
 	   E.MRN,
 	   E.ENCNTR_ID,
 	   E.FIN,
-	   all_screendates.screendate_utc,
-	   all_screendates.STUDYPATIENTID,
-	   all_screendates.REGIMEN
+	   enrolled_encounters.screendate_utc,
+	   enrolled_encounters.STUDYPATIENTID,
+	   enrolled_encounters.REGIMEN
 	FROM
-	   CT_DATA.ENCOUNTER_ALL as EA
-	   LEFT JOIN REMAP.v3ModifiedENCOUNTER_PHI as E on E.ENCNTR_ID = EA.ENCNTR_ID
-	   LEFT JOIN CA_DB.ENROLLMENT_FORM as EF on EF.FIN = E.FIN
-	   JOIN (
-			# get person_id for each enrolled person.  				
-			SELECT EF.STUDYPATIENTID, EF.screendate_utc, EF.REGIMEN, EA.PERSON_ID
-			FROM (SELECT STUDYPATIENTID, screendate_utc, REGIMEN, FIN 
-				FROM CA_DB.ENROLLMENT_FORM WHERE ENROLLMENTRESULT = 'ENROLLED' AND STUDYPATIENTID IS NOT NULL) as EF
-			JOIN REMAP.v3ModifiedENCOUNTER_PHI EP ON EF.FIN = EP.fin
-			JOIN CT_DATA.ENCOUNTER_ALL EA ON EP.encntr_id = EA.encntr_id
-		) AS all_screendates ON EA.PERSON_ID = all_screendates.PERSON_ID	
+	 ( SELECT 	   
+		 	EA.PERSON_ID, 
+			EA.ENCNTR_ID,
+		   all_screendates.screendate_utc,
+		   all_screendates.STUDYPATIENTID,
+		   all_screendates.REGIMEN
+		FROM  
+		   (
+				# get person_id for each enrolled person.  				
+				SELECT EF.STUDYPATIENTID, EF.screendate_utc, EF.REGIMEN, EA.PERSON_ID
+				FROM (SELECT STUDYPATIENTID, screendate_utc, REGIMEN, FIN 
+					FROM CA_DATA.ENROLLED WHERE ENROLLMENTRESULT = 'ENROLLED' AND STUDYPATIENTID IS NOT NULL) as EF
+				JOIN REMAP.v3ModifiedENCOUNTER_PHI EP ON EF.FIN = LPAD(EP.fin, 13, '0')
+				JOIN CT_DATA.ENCOUNTER_ALL EA ON EP.encntr_id = EA.encntr_id
+			) AS all_screendates
+			LEFT JOIN CT_DATA.ENCOUNTER_ALL as EA  ON EA.PERSON_ID = all_screendates.PERSON_ID
+		)	AS enrolled_encounters 
+	   LEFT JOIN REMAP.v3ModifiedENCOUNTER_PHI as E on E.ENCNTR_ID = enrolled_encounters.ENCNTR_ID
 	WHERE E.FIN IS NOT NULL 
 ;
+*/
 
 
 CREATE OR REPLACE VIEW REMAPe.ve3ViewEpicEnrolledPerson2 AS
@@ -95,7 +104,7 @@ CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeScoreS AS
 			LEFT JOIN (
 				SELECT *, CONCAT('0', studypatientid) AS corrected_studypatientid 
 				FROM COVID_PHI.GCS_scores G) AS G ON (EP.studypatientid = G.corrected_studypatientid)
-			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
+			LEFT JOIN CA_DATA.INTAKE I ON (LPAD(EP.fin, 13, '0') = I.fin)
 		WHERE
 			EP.RandomizedSevere_utc IS NOT NULL
 	)
@@ -155,7 +164,7 @@ CREATE OR REPLACE VIEW COVID_PHI.v2ApacheeDebug AS
 			LEFT JOIN (
 				SELECT *, CONCAT('0', studypatientid) AS corrected_studypatientid 
 				FROM COVID_PHI.GCS_scores G) AS G ON (EP.studypatientid = G.corrected_studypatientid)
-			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
+			LEFT JOIN CA_DATA.INTAKE I ON (EP.fin = LPAD(I.fin, 13, '0'))
 		WHERE
 			EP.RandomizedSevere_utc IS NOT NULL
 	)
@@ -199,7 +208,7 @@ CREATE OR REPLACE VIEW REMAPe.ve2ApacheeScoreS AS
 			LEFT JOIN (
 				SELECT *, CONCAT('0', studypatientid) AS corrected_studypatientid 
 				FROM COVID_PHI.GCS_scores G) AS G ON (EP.studypatientid = G.corrected_studypatientid)
-			LEFT JOIN CA_DB.INTAKE_FORM I ON (EP.fin = I.fin)
+			LEFT JOIN CA_DATA.INTAKE I ON (EP.fin = LPAD(I.fin, 13, '0'))
 		WHERE
 			EP.RandomizedSevere_utc IS NOT NULL
 	)
