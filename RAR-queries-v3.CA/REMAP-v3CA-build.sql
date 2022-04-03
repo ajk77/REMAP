@@ -105,9 +105,9 @@ CREATE TABLE REMAP_CA.v3IdMap
 	SELECT DISTINCT V.encntr_id, V.fin, studypatientid, CV.display AS encounter_type, IF(enrolled_fins.fin IS NULL, 'no', 'yes') AS preferred_fin
 	FROM REMAP_CA.v3CernerEnrolledPerson2 V
 	JOIN CA_DATA.ENCOUNTER_ALL EA ON V.ENCNTR_ID = EA.ENCNTR_ID
-	JOIN CT_DATA.CODE_VALUE CV ON EA.ENCNTR_TYPE_CD = CV.code_value
+	JOIN CA_DATA.CODE_VALUE CV ON EA.ENCNTR_TYPE_CD = CV.code_value
 		LEFT JOIN (SELECT DISTINCT LPAD(FIN, 13, '0') AS FIN
-				  FROM  CA_DB.ENROLLMENT_FORM 
+				  FROM  CA_DATA.ENROLLED
 				  WHERE ENROLLMENTRESULT = 'ENROLLED') AS enrolled_fins ON enrolled_fins.FIN = V.FIN
 	WHERE CV.display IN ('Inpatient', 'Emergency', 'Inpt Maternity', 'Neuro Inpatient', 'Direct Obs')
 ;
