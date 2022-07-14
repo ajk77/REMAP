@@ -94,7 +94,11 @@ SELECT * FROM REMAP_CA.v3_RAR_condensed;
 
 
 /* v3_Form2Baseline_sections5to7 */ 
-DROP TABLE REMAP_CA.v3_Form2Baseline_sections5to7;
+#DROP TABLE REMAP_CA.v3_Form2Baseline_sections5to7;
+/********************************************************************************************************/
+DROP TABLE REMAP_CA.baseline_m;
+DROP TABLE REMAP_CA.baseline_s;
+
 CREATE TABLE REMAP_CA.v3tempBas
 		WITH all_sec6_meas AS (
 			SELECT *, REMAP.to_baseline_standard(sub_standard_meaning) AS baseline_standard 
@@ -336,83 +340,177 @@ CREATE TABLE REMAP_CA.v3tempBas
 			GROUP BY R.StudyPatientID	
 		) AS SOFA ON R.StudyPatientID = SOFA.StudyPatientID	
 	;
-CREATE TABLE REMAP_CA.v3_Form2Baseline_sections5to7
+	
+	DROP TABLE REMAP_CA.BASELINE_CHARACTERISTICS;  ############################
+	CREATE TABLE REMAP_CA.BASELINE_CHARACTERISTICS
+	WITH W AS (
+		SELECT 
+			`w1`.`ENCNTR_ID` AS `ENCNTR_ID`,
+			`w1`.`RESULT_VAL` AS `weight_1`,
+			(CASE WHEN (`w1`.`RESULT_UNITS_CD` = '0') THEN NULL WHEN (`w1`.`RESULT_UNITS_CD` = 561) THEN 'kg' ELSE `w1`.`RESULT_UNITS_CD` END) AS `weight_units`
+		FROM (
+			SELECT 
+				`CE`.`ENCNTR_ID` AS `ENCNTR_ID`,
+				`CE`.`RESULT_VAL` AS `RESULT_VAL`,
+				`CE`.`RESULT_UNITS_CD` AS `RESULT_UNITS_CD`,
+				row_number() OVER (PARTITION BY `CE`.`ENCNTR_ID` ORDER BY `CE`.`EVENT_END_DT_TM`) AS `rn`
+			FROM `CA_DATA`.`CE_PHYSIO` `CE`
+			WHERE ((`CE`.`EVENT_CD` in (24720220,24719963,661586,37908838,39419717,4891916,1015759512)) AND regexp_like(`CE`.`RESULT_VAL`,'^[0-9]'))) `w1`
+		WHERE (`w1`.`rn` = 1)
+	), H AS (
+		SELECT 
+			`h1`.`ENCNTR_ID` AS `ENCNTR_ID`,
+			`h1`.`RESULT_VAL` AS `height_1`,
+			(CASE WHEN (`h1`.`RESULT_UNITS_CD` = '0') THEN NULL WHEN (`h1`.`RESULT_UNITS_CD` = 554) THEN 'cm' WHEN (`h1`.`RESULT_UNITS_CD` = 560) THEN 'inches' ELSE `h1`.`RESULT_UNITS_CD` END) AS `height_units`
+		FROM (
+			SELECT 
+				`CE`.`ENCNTR_ID` AS `ENCNTR_ID`,
+				`CE`.`RESULT_VAL` AS `RESULT_VAL`,
+				`CE`.`RESULT_UNITS_CD` AS `RESULT_UNITS_CD`,row_number() OVER (PARTITION BY `CE`.`ENCNTR_ID` ORDER BY `CE`.`EVENT_END_DT_TM`) AS `rn`
+			FROM `CA_DATA`.`CE_PHYSIO` `CE`
+			WHERE ((`CE`.`EVENT_CD` in (1015754182,661585,581146272,581145904,4891830)) AND regexp_like(`CE`.`RESULT_VAL`,'^[0-9]'))) `h1`
+		WHERE (`h1`.`rn` = 1)
+	), D AS ( 
+			SELECT EP.StudyPatientID, GROUP_CONCAT(N.SOURCE_IDENTIFIER_KEYCAP) AS ICD_list 
+			FROM REMAP_CA.v2EnrolledPerson EP
+			LEFT JOIN CT_DATA.DIAGNOSIS D ON EP.ENCNTR_ID = D.ENCNTR_ID AND REMAP.to_datetime_utc(D.BEG_EFFECTIVE_DT_TM) < EP.screendate_utc 
+			LEFT JOIN CT_DATA.NOMENCLATURE N ON D.NOMENCLATURE_ID = N.NOMENCLATURE_ID
+			GROUP BY EP.StudyPatientID
+	)
 	SELECT 
-		R.StudyPatientID, 'Moderate' AS aux_RandomizationType, CURRENT_TIMESTAMP as aux_last_update,
-		'n/a' as Bas_APACHEScore,
-		H.FiO2_float AS Bas_FIO2,
-		H.PaO2_float AS Bas_PaO2Entered,
-		H.PaO2_units AS Bas_PaO2Units,
-		'<e>' AS Bas_PaO2_mmHg,
-		H.PF_ratio AS Bas_PaO2FIO2Ratio,
+		EP.StudyPatientID,
+		'1000000000' AS FIN,
+		CV4.CDF_MEANING AS EL_Sex,  #P.SEX_CD
+		#CV5.DISPLAY AS Bas_Race, #P.RACE_CD,
+		I.RACE AS Bas_Race,
+		(YEAR(I.SCREENDATE_UTC) - YEAR(I.DOB) - (DATE_FORMAT(I.SCREENDATE_UTC, '%m%d') < DATE_FORMAT(I.DOB, '%m%d'))) AS EL_AgeAtFirstEntry,
+		DATE_FORMAT(EP.StartOfHospitalization_utc,'%c/%e/%Y %k:%i') AS Bas_HospAdmissionDate,
+		H.height_1 AS Bas_Height, H.height_units AS Bas_HeightUnits, 'NULL' AS Bas_HeightCM,
+		W.weight_1 AS Bas_Weight, W.weight_units AS Bas_WeightUnits, 'NULL' AS Bas_WeightKG,
+		I.PREGNANT AS Bas_Pregnant,
+		IF(I.COMORBIDLIST LIKE '%smoker - current%', 'Yes', 'No') AS Bas_Smoker,
+		'<need to add diagnosis table [F10]>' AS Bas_Alcohol, 
+		'Null' AS Bas_HealthCareWorker, 
+		'No' AS Bas_CNMWeakness, 
+		IF(I.COMORBIDLIST LIKE '%diabetes%' 
+			OR I.COMORBIDLIST LIKE '%type 1%'
+			OR I.COMORBIDLIST LIKE '%type 2%', 'Yes', 'No <need to add [E10, O24.0, E11, O24.1, O24.4]') AS Bas_Diabetes, 
+		IF(I.COMORBIDLIST LIKE '%chronic renal disease%', 'Yes', 'No') AS Bas_KidneyDisease,  
+		IF(I.COMORBIDLIST LIKE '%dialysis dependent%', 'Yes', 'No') AS Bas_Dialysis,
+		B.Bas_RRT, 
+		'<need to add diagnosis table [J45, J67.8]>' AS Bas_rc_Asthma,
+		'<need to add diagnosis table [J47]>' AS Bas_rc_Bronchiectasis, 
+		'<need to add diagnosis table [J44.9]>' AS Bas_rc_COPD, 
+		'<need to add diagnosis table [J80, J81, J82, J84, M05.10]>' AS Bas_rc_Interstitial, 
+		'<need to add diagnosis table [C34]>'  AS Bas_rc_PrimaryLungCancer, 
+		'Null' AS Bas_rc_Other, 
+		'Null' AS Bas_rc_None, 
+		IF(I.COMORBIDLIST LIKE '%severe chronic lung disease%', 'Yes', 'No') AS Bas_SevRespiratory, 
+		IF(I.COMORBIDLIST LIKE '%immunocompromised%', 'Yes', 'No <need to add [Z92.25]>') AS Bas_ImmTreatment,  
+		'<need to add diagnosis table [B20]>' AS Bas_id_AIDS, 
+		'<need to add diagnosis table [C90.10, C90.12, C91.00, C91.02, C91.10, C91.12, C91.30, C91.32, C91.40, C91.42, C91.50, C91.52, C91.60, C91.62, C91.A0, C91.A2, C91.Z0, C91.Z2, C91.90, C91.92, C92.00, C92.02, C92.10, C92.12, C92.20, C92.22, C92.30, C92.32, C92.40, C92.42, C92.50, C92.52, C92.60, C92.62, C92.A0, C92.A2, C92.Z0, C92.Z2, C92.90, C92.92, C93.00, C93.02, C93.10, C93.12, C93.30, C93.32, C93.Z0, C93.Z2, C93.90, C93.92, C94.00, C94.02, C94.20, C94.22, C94.30, C94.32, C94.40, C94.42, C94.6, C94.80, C94.82, C95.00, C95.02, C95.10, C95.12, C95.90, C95.92, C96]>' AS Bas_id_AcuteLeukaemia, 
+		'<need to add diagnosis table [C81, C82, C83, C84, C85, C86, C88]>' AS Bas_id_Lymphoma, 
+		IF(I.COMORBIDLIST LIKE '%cancer%'
+			AND I.COMORBIDLIST LIKE '%metastatic%', 'Yes', 'No') AS Bas_id_MetaCancer, 
+		'<need to add diagnosis table [C90.00, C90.02]>' AS Bas_id_Myeloma, 
+		'Null' AS Bas_id_Other, 
+		'Null' AS Bas_id_None,
+		IF(I.COMORBIDLIST LIKE '%other cv disease%'
+			OR I.COMORBIDLIST LIKE '%hypertension%'
+			OR I.COMORBIDLIST LIKE '%previous heart attack%', 'Yes', 'No <need to add [I50.84]>') AS Bas_ac_ChronicCardiovascularDisease,
+		IF(I.COMORBIDLIST LIKE '%chronic liver disease - cirrhosis%', 'Yes', 'No <need to add [K70.31, K74.60, K74.69]') AS Bas_ac_Cirrhosis, 
+		IF(I.COMORBIDLIST LIKE '%chronic liver disease - episodes of hepatic failure/encephalopthy%', 'Yes', 'No <need to add [K72, K70.4, K71.1, K91.82, B15.0, B16.0, B16.2, B17.11, B19.0, B19.11, B19.21]') AS Bas_ac_Hepatic
+		#EP.REGIMEN,
+		#EA.ENCNTR_STATUS_CD,
+		#EA.ENCNTR_TYPE_CD,
+		#EA.ENCNTR_TYPE_CD,
+		#EA.ADMIT_SRC_CD,
+		#EA.ADMIT_SRC_CD,
+		#CV1.CDF_MEANING AS ENCNTR_STATUS_CD_meaning, #EA.ENCNTR_STATUS_CD,
+		#CV2.CDF_MEANING AS encounter_type_cd_meaning, #EA.ENCNTR_TYPE_CD,
+		#CV2.DISPLAY AS encounter_type_cd_display, #EA.ENCNTR_TYPE_CD,
+		#CV3.CDF_MEANING AS admit_src_cd_meaning, #EA.ADMIT_SRC_CD,
+		#CV3.DISPLAY AS admit_src_cd_display, #EA.ADMIT_SRC_CD,
+	FROM REMAP_CA.v2EnrolledPerson EP
+	LEFT JOIN CA_DATA.ENCOUNTER_ALL EA ON EP.ENCNTR_ID = EA.ENCNTR_ID
+	LEFT JOIN CA_DATA.INTAKE I ON LPAD(EP.FIN,13,'0') = I.FIN
+	LEFT JOIN CT_DATA.CODE_VALUE CV1 ON EA.ENCNTR_STATUS_CD = CV1.CODE_VALUE
+	LEFT JOIN CT_DATA.CODE_VALUE CV2 ON EA.ENCNTR_TYPE_CD = CV2.CODE_VALUE
+	LEFT JOIN CT_DATA.CODE_VALUE CV3 ON EA.ADMIT_SRC_CD = CV3.CODE_VALUE
+	#LEFT JOIN CT_DATA.PERSON P ON EP.PERSON_ID = P.PERSON_ID
+	LEFT JOIN CT_DATA.CODE_VALUE CV4 ON EA.SEX_CD = CV4.CODE_VALUE
+	#LEFT JOIN CT_DATA.CODE_VALUE CV5 ON P.RACE_CD = CV5.CODE_VALUE
+	LEFT JOIN W ON EP.ENCNTR_ID = W.ENCNTR_ID
+	LEFT JOIN H ON EP.ENCNTR_ID = H.ENCNTR_ID
+	LEFT JOIN REMAP_CA.v3tempBasSupp B ON EP.StudyPatientID = B.StudyPatientID AND B.randomizationType = 'Moderate'
+	LEFT JOIN D ON EP.StudyPatientID = D.StudyPatientID
+	ORDER BY EP.StudyPatientID
+	;
+
+	SELECT * FROM  REMAP_CA.BASELINE_CHARACTERISTICS;
+ ####################################
+
+
+CREATE TABLE REMAP_CA.baseline_m
+	SELECT 
+		BC.*,
+		ifnull(M_Cr.result_float, M_Cr_aux.result_float) AS Bas_CreatinineEntered,
+		if(M_Cr.result_float IS NOT NULL, M_Cr.units, M_Cr_aux.units) AS Bas_CreatinineUnits,
+		ifnull(M_lactate.result_float, M_lactate_aux.result_float) AS Bas_Lactate,
+		if(M_lactate.result_float IS NOT NULL, M_lactate.units, M_lactate_aux.units) AS Bas_LactateUnits,
+		ifnull(M_lactate.result_float, M_lactate_aux.result_float) AS Bas_Lactate_mmolL,
+		M_Plt.result_float AS Bas_Platelets, 
+		M_Plt.units AS Bas_PlateletsUnits,
+		M_Plt.result_float AS Bas_PlateletCount_Cellsx10_9,
+		ifnull(M_TBili.result_float, M_TBili_aux.result_float) AS Bas_Bilirubin,
+		if(M_TBili.result_float IS NOT NULL, M_TBili.units, M_TBili_aux.units) AS Bas_BilirubinUnits,			
 		H.PEEP_float AS Bas_PEEP,
-		H.StateHypoxia AS Bas_HypoxicState,
-		B.Bas_CardioSOFA,
-		B.Bas_RRT,
+		H.PaO2_float AS Bas_PaO2Entered,
+		H.FiO2_float AS Bas_FIO2,
+		H.PF_ratio AS Bas_PaO2FIO2Ratio,
+		IFNULL(G.score, M_GCS.result_float) AS Bas_GlasgowComa,
+		M_ferritin.result_float AS Bas_Ferritin, 
+		M_ferritin.units AS Bas_FerritinUnits, 	
+		M_Ddimer.result_float AS Bas_DDimer,
+		M_Ddimer.units AS Bas_DDimerUnits,
+		M_Ddimer.result_float AS Bas_D_Dimer_ugL,
+		M_Ddimer.NORMAL_HIGH AS Loc_D_Dimer_Upper,
+		M_CRP.result_float AS Bas_CRP,
+		M_CRP.units AS Bas_CRPUnits,
+		M_CRP.result_float*1000 AS Bas_C_ReactiveProtein_ugL,
+		M_ANC.result_float AS Bas_ANC,
+		M_ANC.units AS Bas_ANCUnits,
+		M_ANC.result_float  AS Bas_NeutrophilCount_Cellsx10_9,
+		'Null' AS Bas_TroponinTest,
+		M_troponin.result_float AS Bas_Troponin,
+		M_troponin.units AS Bas_TroponinUnits,
+		M_troponin.NORMAL_HIGH AS Bas_Troponin_Upper,
+		M_troponin.result_float*100 AS Bas_TroponinResult_ngL,
+		M_INR.result_float AS Bas_INR,
+		M_fibrinogen.result_float AS Bas_Fibrinogen,
+		M_fibrinogen.units AS Bas_FibrinogenUnits,
+		IF(M_fibrinogen.units='mg/dL',M_fibrinogen.result_float*0.01,M_fibrinogen.result_float)  AS Bas_Fibrinogen_gL,
+		M_lymphs.result_float AS Bas_Lymphs,
+		M_lymphs.units AS Bas_LymphsUnits,
+		M_lymphs.result_float AS Bas_LymphocyteCount_Cellsx10_9,	
 		B.Bas_ExtracorporealGas,
 		B.Bas_ECMO,
 		B.Bas_ECCO2R,
-		'<e>' AS Bas_Etomidate,
-		ifnull(M_Cr.result_float, M_Cr_aux.result_float) AS Bas_CreatinineEntered,
-			if(M_Cr.result_float IS NOT NULL, M_Cr.units, M_Cr_aux.units) AS Bas_Creatinine_Units,
-			'<e>' AS Bas_Creatinine_mmolL,
-			if(M_Cr.result_float IS NOT NULL, M_Cr.prefix, M_Cr_aux.prefix) AS Bas_Creatinine_Accuracy,
-		M_Plt.result_float AS Bas_PlateletCount, 
-			M_Plt.units AS Bas_PlateletCount_Units,
-			'<e>' AS Bas_PlateletCount_Cellsx10_9,
-			M_Plt.prefix AS Bas_PlateletCount_Accuracy, 
-		ifnull(M_TBili.result_float, M_TBili_aux.result_float) AS Bas_BilirubinEntered,
-			if(M_TBili.result_float IS NOT NULL, M_TBili.units, M_TBili_aux.units) AS Bas_Bilirubin_Units,
-			'<e>' AS BAS_Bilirubin_Umol,
-			if(M_TBili.result_float IS NOT NULL, M_TBili.prefix, M_TBili_aux.prefix) AS Bas_Bilirubin_Accuracy,	
-		ifnull(M_lactate.result_float, M_lactate_aux.result_float) AS Bas_Lactate,
-			if(M_lactate.result_float IS NOT NULL, M_lactate.units, M_lactate_aux.units) AS Bas_Lactate_Units,
-			'<e>' AS BAS_Lactate_mmolL,
-			if(M_lactate.result_float IS NOT NULL, M_lactate.prefix, M_lactate_aux.prefix) AS Bas_Lactate_Accuracy,		
-		IFNULL(G.score, M_GCS.result_float) AS Bas_GlasgowComa, 
-		M_ferritin.result_float AS Bas_Ferritin, 
-			M_ferritin.units AS Bas_Ferritin_Units, 
-		M_Ddimer.result_float AS Bas_D_Dimer, 
-			M_Ddimer.units AS Bas_D_Dimer_Units,
-			'<e>' AS Bas_D_Dimer_ugL,
-			M_Ddimer.prefix AS Bas_D_Dimer_Accuracy,
-		M_CRP.result_float AS Bas_C_ReactiveProtein,
-		 	M_CRP.units AS Bas_C_ReactiveProtein_Units,
-		 	'<e>' AS Bas_C_ReactiveProtein_ugL,
-		 	M_CRP.prefix AS Bas_C_ReactiveProtein_Accuracy,
-		M_ANC.result_float AS Bas_NeutrophilCount, 
-			M_ANC.units AS Bas_NeutrophilCount_Units,
-			'<e>' AS Bas_NeutrophilCount_Cellsx10_9,
-			M_ANC.prefix AS Bas_NeutrophilCount_Accuracy,
-		M_lymphs.result_float AS Bas_LymphocyteCount, 
-			M_lymphs.units AS Bas_LymphocyteCount_Units,
-			'<e>' AS Bas_LymphocyteCount_Cellsx10_9,
-			M_lymphs.prefix AS Bas_LymphocyteCount_Accuracy,
-		'<a>' as Bas_TroponinTest,
-			M_troponin.result_float AS Bas_TroponinResult, 
-			M_troponin.units AS Bas_TroponinResult_Units,
-			'<e>' AS Bas_TroponinResult_ngL,
-			M_troponin.prefix AS Bas_TroponinResult_Accuracy,
-			M_troponin.NORMAL_HIGH AS Bas_TroponinUpperLimit,
-			M_troponin.units AS Bas_TroponinUpperLimit_Units,
-			'<e>' AS Bas_TroponinUpperLimit_ngl,
-		M_INR.result_float AS Bas_INR_or_PR,
-			M_INR.prefix AS Bas_INR_or_PR_Accuracy,
-		M_fibrinogen.result_float AS Bas_Fibrinogen, 
-			M_fibrinogen.units AS Bas_Fibrinogen_Units,
-			'<e>' AS `Bas_Fibrinogen_g/L`,
-			M_fibrinogen.prefix AS Bas_Fibrinogen_Accuracy,
-		M_temp.result_float AS Bas_Temperature,
-			M_temp.units AS Bas_Temperature_Units,
-			'<e>' AS Bas_Temperature_C,
+		'Null' AS Bas_Etomidate,
+		M_albumin.result_float AS Bas_Albumin,
+		M_HCO3.result_float AS Bas_Bicarb,
+		M_HCO3.units AS Bas_BicarbUnits,
+		M_HCO3.result_float AS Bas_Bicarbonate_mEqL,
+		M_temp.result_float AS Bas_Temp,
+		M_temp.units AS Bas_TempUnits,
+		IF(M_temp.units='DegC', M_temp.result_float, (M_temp.result_float-32/1.8))  AS Bas_Temperature_C,
 		M_HR.result_float AS Bas_HeartRate,
-		ifnull(M_sys.result_float, M_sys_aux.result_float) AS Bas_SystolicBloodPressure,
-		M_RR.result_float AS Bas_RespiratoryRate,
-		M_HCO3.result_float AS Bas_Bicarbonate,
-			M_HCO3.units AS Bas_Bicarbonate_Units,
-			'<e>' AS Bas_Bicarbonate_mEqL,
-		M_albumin.result_float AS Bas_Albumin
+		ifnull(M_sys.result_float, M_sys_aux.result_float) AS Bas_SBP,
+		M_RR.result_float AS Bas_RespRate,
+		'Null' AS Bas_Vaccination_COVID19,
+		DATE_FORMAT(CURRENT_TIMESTAMP, '%T') AS INSERT_DATE
 	FROM REMAP_CA.v3RandomizedModerate R
+	LEFT JOIN REMAP_CA.BASELINE_CHARACTERISTICS BC ON R.StudyPatientID = BC.StudyPatientID
 	LEFT JOIN REMAP_CA.v3tempHypoxiaVar H ON R.StudyPatientID = H.StudyPatientID AND H.randomizationType = 'Moderate'
 	LEFT JOIN REMAP_CA.v3tempBasSupp B ON R.StudyPatientID = B.StudyPatientID AND B.randomizationType = 'Moderate'
 	LEFT JOIN COVID_PHI.GCS_scores G ON R.StudyPatientID = G.StudyPatientID
@@ -439,83 +537,70 @@ CREATE TABLE REMAP_CA.v3_Form2Baseline_sections5to7
 	LEFT JOIN REMAP_CA.v3tempBas M_RR ON R.StudyPatientID = M_RR.StudyPatientID AND M_RR.baseline_standard = 'Respiratory rate' AND M_RR.RandomizationType = 'Moderate'
 	LEFT JOIN REMAP_CA.v3tempBas M_HCO3 ON R.StudyPatientID = M_HCO3.StudyPatientID AND M_HCO3.baseline_standard = 'HCO3' AND M_HCO3.RandomizationType = 'Moderate'
 	LEFT JOIN REMAP_CA.v3tempBas M_albumin ON R.StudyPatientID = M_albumin.StudyPatientID AND M_albumin.baseline_standard = 'Albumin' AND M_albumin.RandomizationType = 'Moderate'
-UNION  
+	ORDER BY StudyPatientID
+;
+
+CREATE TABLE REMAP_CA.baseline_s
 	SELECT 
-		R.StudyPatientID, 'Severe' AS aux_RandomizationType, CURRENT_TIMESTAMP as aux_last_update,
-		A.apachee_APS as Bas_APACHEScore,
-		H.FiO2_float AS Bas_FIO2,
-		H.PaO2_float AS Bas_PaO2Entered,
-		H.PaO2_units AS Bas_PaO2Units,
-		'<e>' AS Bas_PaO2_mmHg,
-		H.PF_ratio AS Bas_PaO2FIO2Ratio,
+		BC.*,
+		ifnull(M_Cr.result_float, M_Cr_aux.result_float) AS Bas_CreatinineEntered,
+		if(M_Cr.result_float IS NOT NULL, M_Cr.units, M_Cr_aux.units) AS Bas_CreatinineUnits,
+		ifnull(M_lactate.result_float, M_lactate_aux.result_float) AS Bas_Lactate,
+		if(M_lactate.result_float IS NOT NULL, M_lactate.units, M_lactate_aux.units) AS Bas_LactateUnits,
+		ifnull(M_lactate.result_float, M_lactate_aux.result_float) AS Bas_Lactate_mmolL,
+		M_Plt.result_float AS Bas_Platelets, 
+		M_Plt.units AS Bas_PlateletsUnits,
+		M_Plt.result_float AS Bas_PlateletCount_Cellsx10_9,
+		ifnull(M_TBili.result_float, M_TBili_aux.result_float) AS Bas_Bilirubin,
+		if(M_TBili.result_float IS NOT NULL, M_TBili.units, M_TBili_aux.units) AS Bas_BilirubinUnits,			
 		H.PEEP_float AS Bas_PEEP,
-		H.StateHypoxia AS Bas_HypoxicState,
-		B.Bas_CardioSOFA,
-		B.Bas_RRT,
+		H.PaO2_float AS Bas_PaO2Entered,
+		H.FiO2_float AS Bas_FIO2,
+		H.PF_ratio AS Bas_PaO2FIO2Ratio,
+		IFNULL(G.score, M_GCS.result_float) AS Bas_GlasgowComa,
+		M_ferritin.result_float AS Bas_Ferritin, 
+		M_ferritin.units AS Bas_FerritinUnits, 	
+		M_Ddimer.result_float AS Bas_DDimer,
+		M_Ddimer.units AS Bas_DDimerUnits,
+		M_Ddimer.result_float AS Bas_D_Dimer_ugL,
+		M_Ddimer.NORMAL_HIGH AS Loc_D_Dimer_Upper,
+		M_CRP.result_float AS Bas_CRP,
+		M_CRP.units AS Bas_CRPUnits,
+		M_CRP.result_float*1000 AS Bas_C_ReactiveProtein_ugL,
+		M_ANC.result_float AS Bas_ANC,
+		M_ANC.units AS Bas_ANCUnits,
+		M_ANC.result_float AS Bas_NeutrophilCount_Cellsx10_9,
+		'Null' AS Bas_TroponinTest,
+		M_troponin.result_float AS Bas_Troponin,
+		M_troponin.units AS Bas_TroponinUnits,
+		M_troponin.NORMAL_HIGH AS Bas_Troponin_Upper,
+		M_troponin.result_float*100 AS Bas_TroponinResult_ngL,
+		M_INR.result_float AS Bas_INR,
+		M_fibrinogen.result_float AS Bas_Fibrinogen,
+		M_fibrinogen.units AS Bas_FibrinogenUnits,
+	   IF(M_fibrinogen.units='mg/dL',M_fibrinogen.result_float*0.01,M_fibrinogen.result_float) AS Bas_Fibrinogen_gL,
+		M_lymphs.result_float AS Bas_Lymphs,
+		M_lymphs.units AS Bas_LymphsUnits,
+		M_lymphs.result_float AS Bas_LymphocyteCount_Cellsx10_9,	
 		B.Bas_ExtracorporealGas,
 		B.Bas_ECMO,
 		B.Bas_ECCO2R,
-		'<e>' AS Bas_Etomidate,
-		ifnull(M_Cr.result_float, M_Cr_aux.result_float) AS Bas_CreatinineEntered,
-			if(M_Cr.result_float IS NOT NULL, M_Cr.units, M_Cr_aux.units) AS Bas_Creatinine_Units,
-			'<e>' AS Bas_Creatinine_mmolL,
-			if(M_Cr.result_float IS NOT NULL, M_Cr.prefix, M_Cr_aux.prefix) AS Bas_Creatinine_Accuracy,
-		M_Plt.result_float AS Bas_PlateletCount, 
-			M_Plt.units AS Bas_PlateletCount_Units,
-			'<e>' AS Bas_PlateletCount_Cellsx10_9,
-			M_Plt.prefix AS Bas_PlateletCount_Accuracy, 
-		ifnull(M_TBili.result_float, M_TBili_aux.result_float) AS Bas_BilirubinEntered,
-			if(M_TBili.result_float IS NOT NULL, M_TBili.units, M_TBili_aux.units) AS Bas_Bilirubin_Units,
-			'<e>' AS BAS_Bilirubin_Umol,
-			if(M_TBili.result_float IS NOT NULL, M_TBili.prefix, M_TBili_aux.prefix) AS Bas_Bilirubin_Accuracy,	
-		ifnull(M_lactate.result_float, M_lactate_aux.result_float) AS Bas_Lactate,
-			if(M_lactate.result_float IS NOT NULL, M_lactate.units, M_lactate_aux.units) AS Bas_Lactate_Units,
-			'<e>' AS BAS_Lactate_mmolL,
-			if(M_lactate.result_float IS NOT NULL, M_lactate.prefix, M_lactate_aux.prefix) AS Bas_Lactate_Accuracy,		
-		IFNULL(G.score, M_GCS.result_float) AS Bas_GlasgowComa, 
-		M_ferritin.result_float AS Bas_Ferritin, 
-			M_ferritin.units AS Bas_Ferritin_Units, 
-		M_Ddimer.result_float AS Bas_D_Dimer, 
-			M_Ddimer.units AS Bas_D_Dimer_Units,
-			'<e>' AS Bas_D_Dimer_ugL,
-			M_Ddimer.prefix AS Bas_D_Dimer_Accuracy,
-		M_CRP.result_float AS Bas_C_ReactiveProtein,
-		 	M_CRP.units AS Bas_C_ReactiveProtein_Units,
-		 	'<e>' AS Bas_C_ReactiveProtein_ugL,
-		 	M_CRP.prefix AS Bas_C_ReactiveProtein_Accuracy,
-		M_ANC.result_float AS Bas_NeutrophilCount, 
-			M_ANC.units AS Bas_NeutrophilCount_Units,
-			'<e>' AS Bas_NeutrophilCount_Cellsx10_9,
-			M_ANC.prefix AS Bas_NeutrophilCount_Accuracy,
-		M_lymphs.result_float AS Bas_LymphocyteCount, 
-			M_lymphs.units AS Bas_LymphocyteCount_Units,
-			'<e>' AS Bas_LymphocyteCount_Cellsx10_9,
-			M_lymphs.prefix AS Bas_LymphocyteCount_Accuracy,
-		'<a>' as Bas_TroponinTest,
-			M_troponin.result_float AS Bas_TroponinResult, 
-			M_troponin.units AS Bas_TroponinResult_Units,
-			'<e>' AS Bas_TroponinResult_ngL,
-			M_troponin.prefix AS Bas_TroponinResult_Accuracy,
-			M_troponin.NORMAL_HIGH AS Bas_TroponinUpperLimit,
-			M_troponin.units AS Bas_TroponinUpperLimit_Units,
-			'<e>' AS Bas_TroponinUpperLimit_ngl,
-		M_INR.result_float AS Bas_INR_or_PR,
-			M_INR.prefix AS Bas_INR_or_PR_Accuracy,
-		M_fibrinogen.result_float AS Bas_Fibrinogen, 
-			M_fibrinogen.units AS Bas_Fibrinogen_Units,
-			'<e>' AS `Bas_Fibrinogen_g/L`,
-			M_fibrinogen.prefix AS Bas_Fibrinogen_Accuracy,
-		M_temp.result_float AS Bas_Temperature,
-			M_temp.units AS Bas_Temperature_Units,
-			'<e>' AS Bas_Temperature_C,
+		'Null' AS Bas_Etomidate,
+		A.apachee_APS AS Bas_APACHEAPS,
+		M_albumin.result_float AS Bas_Albumin,
+		M_HCO3.result_float AS Bas_Bicarb,
+		M_HCO3.units AS Bas_BicarbUnits,
+		M_HCO3.result_float AS Bas_Bicarbonate_mEqL,
+		M_temp.result_float AS Bas_Temp,
+		M_temp.units AS Bas_TempUnits,
+		IF(M_temp.units='DegC', M_temp.result_float, (M_temp.result_float-32/1.8))  AS Bas_Temperature_C,
 		M_HR.result_float AS Bas_HeartRate,
-		ifnull(M_sys.result_float, M_sys_aux.result_float) AS Bas_SystolicBloodPressure,
-		M_RR.result_float AS Bas_RespiratoryRate,
-		M_HCO3.result_float AS Bas_Bicarbonate,
-			M_HCO3.units AS Bas_Bicarbonate_Units,
-			'<e>' AS Bas_Bicarbonate_mEqL,
-		M_albumin.result_float AS Bas_Albumin
+		ifnull(M_sys.result_float, M_sys_aux.result_float) AS Bas_SBP,
+		M_RR.result_float AS Bas_RespRate,
+		'Null' AS Bas_Vaccination_COVID19,
+		DATE_FORMAT(CURRENT_TIMESTAMP, '%T') AS INSERT_DATE
 	FROM REMAP_CA.v3RandomizedSevere R
+	LEFT JOIN REMAP_CA.BASELINE_CHARACTERISTICS BC ON R.StudyPatientID = BC.StudyPatientID
 	LEFT JOIN COVID_PHI.v2ApacheeScoreS A ON R.StudyPatientID = A.StudyPatientID
 	LEFT JOIN REMAP_CA.v3tempHypoxiaVar H ON R.StudyPatientID = H.StudyPatientID AND H.randomizationType = 'Severe'
 	LEFT JOIN REMAP_CA.v3tempBasSupp B ON R.StudyPatientID = B.StudyPatientID AND B.randomizationType = 'Severe'
@@ -543,12 +628,24 @@ UNION
 	LEFT JOIN REMAP_CA.v3tempBas M_RR ON R.StudyPatientID = M_RR.StudyPatientID AND M_RR.baseline_standard = 'Respiratory rate' AND M_RR.RandomizationType = 'Severe'
 	LEFT JOIN REMAP_CA.v3tempBas M_HCO3 ON R.StudyPatientID = M_HCO3.StudyPatientID AND M_HCO3.baseline_standard = 'HCO3' AND M_HCO3.RandomizationType = 'Severe'
 	LEFT JOIN REMAP_CA.v3tempBas M_albumin ON R.StudyPatientID = M_albumin.StudyPatientID AND M_albumin.baseline_standard = 'Albumin' AND M_albumin.RandomizationType = 'Severe'	
-	ORDER BY aux_RandomizationType, StudyPatientID
+	ORDER BY StudyPatientID
 	;
+	
+	
+		SELECT * FROM REMAP_CA.baseline_m;
+		SELECT * FROM REMAP_CA.baseline_s;
+	
+	
 	DROP TABLE REMAP_CA.v3tempBas;
 	DROP TABLE REMAP_CA.v3tempHypoxiaVar;
 	DROP TABLE REMAP_CA.v3tempBasSupp;
-SELECT * FROM REMAP_CA.v3_Form2Baseline_sections5to7;
+
+
+
+
+
+
+/********************************************************************/
 
 ### v3_Form4Daily_all ### 
 DROP TABLE REMAP_CA.v3_Form4Daily_all;
@@ -851,5 +948,4 @@ WITH day_14 AS (
 /* ************************************** future ************************************** */
 
 ### v3_Form6Discharge_all ###
-
 

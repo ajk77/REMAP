@@ -45,6 +45,8 @@ Dependencies
 
 #CREATE DATABASE REMAP_CA_CA;
 
+USE REMAP_CA;
+
 ### correct updated FINs ###
 DROP TABLE REMAP_CA.v3ModifiedENCOUNTER_PHI;
 CREATE TABLE REMAP_CA.v3ModifiedENCOUNTER_PHI  
@@ -105,9 +107,9 @@ CREATE TABLE REMAP_CA.v3IdMap
 	SELECT DISTINCT V.encntr_id, V.fin, studypatientid, CV.display AS encounter_type, IF(enrolled_fins.fin IS NULL, 'no', 'yes') AS preferred_fin
 	FROM REMAP_CA.v3CernerEnrolledPerson2 V
 	JOIN CA_DATA.ENCOUNTER_ALL EA ON V.ENCNTR_ID = EA.ENCNTR_ID
-	JOIN CA_DATA.CODE_VALUE CV ON EA.ENCNTR_TYPE_CD = CV.code_value
+	JOIN CT_DATA.CODE_VALUE CV ON EA.ENCNTR_TYPE_CD = CV.code_value
 		LEFT JOIN (SELECT DISTINCT LPAD(FIN, 13, '0') AS FIN
-				  FROM  CA_DATA.ENROLLED
+				  FROM  CA_DB.ENROLLMENT_FORM 
 				  WHERE ENROLLMENTRESULT = 'ENROLLED') AS enrolled_fins ON enrolled_fins.FIN = V.FIN
 	WHERE CV.display IN ('Inpatient', 'Emergency', 'Inpt Maternity', 'Neuro Inpatient', 'Direct Obs')
 ;
@@ -207,7 +209,7 @@ CREATE TABLE REMAP_CA.v3LocOrder
 			FROM hospitalStayTransition H
 			JOIN screenLoc S ON H.STUDYPATIENTID = S.STUDYPATIENTID
 			WHERE H.loc_order >= S.screening_loc
-			GROUP BY H.STUDYPATIENTID
+			GROUP BY H.STUDYPATIENTID 
 		), subsequentLocAtHospBeg AS  # get the greatest transition loc the is less than the screening point 
 			# filter for transition points that are less than the screening point 
 			# find the maximum transition point that meets the above criteria
@@ -217,7 +219,7 @@ CREATE TABLE REMAP_CA.v3LocOrder
 			FROM hospitalStayTransition H
 			JOIN screenLoc S ON H.STUDYPATIENTID = S.STUDYPATIENTID
 			WHERE H.loc_order < S.screening_loc
-			GROUP BY H.STUDYPATIENTID
+			GROUP BY H.STUDYPATIENTID 
 		), locAtHospBeg AS  
 		(SELECT studypatientid, MAX(h_beg_loc) AS h_beg_loc 
 			FROM
@@ -225,17 +227,17 @@ CREATE TABLE REMAP_CA.v3LocOrder
 				UNION
 				SELECT studypatientid, loc_order AS h_beg_loc FROM startLoc
 				) AS find_starts
-			GROUP BY studypatientid
+			GROUP BY studypatientid 
 		), locsForEnrolledHosp AS  # identify the begining loc and ending loc for the enrolled hospitalization
 		(SELECT B.STUDYPATIENTID, B.h_beg_loc, E.h_end_loc
 			FROM locAtHospBeg B
-			LEFT JOIN locAtHospEnd E ON B.studypatientid = E.studypatientid
-		)
+			LEFT JOIN locAtHospEnd E ON B.studypatientid = E.studypatientid 
+		) 
 	DELETE O
 		FROM REMAP_CA.v3LocOrder O
 		JOIN locsForEnrolledHosp L ON O.STUDYPATIENTID = L.STUDYPATIENTID
 		WHERE (O.loc_order < L.h_beg_loc) OR (O.loc_order > h_end_loc)
-;
+; 
 
 ### Remove encounters that are not from an enrolled hospitalization ###
 DELETE FROM REMAP_CA.v3IdMap
