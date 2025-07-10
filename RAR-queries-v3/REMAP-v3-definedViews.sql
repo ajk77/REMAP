@@ -1,6 +1,6 @@
 /*
 REMAP-v3-definedViews.sql
-created by King
+created by ajk77.github.io | @ajk77onX
 
 NAVIGATION: 
 	VIEWS

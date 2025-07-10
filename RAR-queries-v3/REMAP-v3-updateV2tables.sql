@@ -1,6 +1,6 @@
 /*
 REMAP-v3-update_v2Tables.sql
-created by AndrewJKing.com | @AndrewsJourney
+created by ajk77.github.io | @ajk77onX
 
 NAVIGATION: 
 	ALL are COVID_PHI

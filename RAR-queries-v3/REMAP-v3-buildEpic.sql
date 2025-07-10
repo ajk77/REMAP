@@ -1,6 +1,6 @@
 /*
 REMAP-v3-buildEpic.sql
-created by AndrewJKing.com | @AndrewsJourney
+created by ajk77.github.io | @ajk77onX
 
 NAVIGATION: 
 	TABLE BUILD ORDER 

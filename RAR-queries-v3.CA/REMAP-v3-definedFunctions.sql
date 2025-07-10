@@ -1,4 +1,27 @@
+/*
+REMAP-v3-definedFunctions.sql
+created by ajk77.github.io | @ajk77onX
 
+NAVIGATION: 
+	DEFINED FUNCTIONS
+	to_utc
+	to_local
+	to_datetime_utc
+	to_datetime_epic
+	to_unique_orderd_num
+	dfltH
+	dfltL
+	to_float
+	convert_vaso_to_sofa_points
+	get_prefix
+	extract_diastolic
+	to_baseline_standard
+	get_postfix
+	get_physio_result_str
+	get_physio_result_str_epic
+	convert_epic_unit
+
+*/
 DROP FUNCTION REMAP.to_utc;
 
 delimiter $$
